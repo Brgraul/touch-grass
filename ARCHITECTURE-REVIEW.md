@@ -11,6 +11,8 @@ This is a review of the current working-tree document, including its existing un
 
 ## Findings
 
+The findings below cite line numbers in the earlier architecture draft, preserved in commit `8c9f3c2`. The current `ARCHITECTURE.md` replaces that draft.
+
 P1 findings affect correctness or the meaning of completion. P2 findings affect boundary clarity, maintainability, testing, or recovery during setup.
 
 ### F1 · P1 · Completion has conflicting verification requirements
@@ -169,7 +171,7 @@ The last two process principles, outcome-oriented execution and verifiable units
 
 ## Template architecture synthesis and revisions
 
-This section records how [the template architecture](README-TEMPLATE-ARCHITECTURE.md) was chosen and revised, and how it answers F1 to F10. The contract itself stays free of process history.
+This section records how [the template architecture](ARCHITECTURE.md) was chosen and revised, and how it answers F1 to F10. The specification itself stays free of process history. The template contract was first drafted as a separate file and later consolidated with the earlier architecture into `ARCHITECTURE.md`, the single canonical specification.
 
 ### Synthesis decision
 
@@ -219,16 +221,16 @@ Two narrow grafts came from candidate B. Limits follow the actual shared provide
 
 | Finding | Design contract | Decisive proof before implementation acceptance |
 |---|---|---|
-| F1 | [Verification](README-TEMPLATE-ARCHITECTURE.md#verification): one policy-driven completion profile, full CI/end-state gates. | A type or behavior failure prevents completion even when fast checks pass. |
-| F2 | [Persistence and dispatch recovery](README-TEMPLATE-ARCHITECTURE.md#persistence-and-dispatch-recovery): transactional receipt and attempt, one lease-based recovery path, owned scheduled reconciliation. | Interrupt every dispatch boundary and recover without stranded tasks, consumed attempts, or concurrent sends. |
-| F3 | [The agent loop](README-TEMPLATE-ARCHITECTURE.md#the-agent-loop) and [Lifecycle and cancellation](README-TEMPLATE-ARCHITECTURE.md#lifecycle-and-cancellation): immutable terminals, active-attempt and token fencing on every runner write. | All terminal race orders, concurrent advances, fenced commits, and explicit retry preserve terminal history. |
-| F4 | [Admission and limits](README-TEMPLATE-ARCHITECTURE.md#admission-and-limits), [Timing](README-TEMPLATE-ARCHITECTURE.md#timing), and [Model calls](README-TEMPLATE-ARCHITECTURE.md#model-calls-and-gateway-outcomes): atomic slot admission, database-enforced lease nesting, per-user gateway budgets and rate windows. | Last-slot contention, stale senders, every gateway outcome, and budget refusal converge. |
-| F5 | [Runtime parsing and authorization](README-TEMPLATE-ARCHITECTURE.md#runtime-parsing-and-authorization): every external adapter parses, including tool arguments, model outcomes, and stored blocks; domain decisions stay pure. | Malformed and oversized inputs fail at every boundary; branded IDs and exhaustive variants reject misuse. |
-| F6 | [Verification](README-TEMPLATE-ARCHITECTURE.md#verification): gateway requests are behavioral evidence. | A private refactor preserves tests; a wrong or duplicated model request fails them. |
-| F7 | [Policy and compiled boundaries](README-TEMPLATE-ARCHITECTURE.md#policy-and-compiled-boundaries): source ownership plus transformed client reachability. | The canonical RPC passes; each negative fixture fails with its designated diagnostic. |
-| F8 | [Module map](README-TEMPLATE-ARCHITECTURE.md#module-map): only `src/server.ts` composes feature runtime code; platform has no exception. | A platform-to-feature registration import fails enforcement. |
-| F9 | [Policy and compiled boundaries](README-TEMPLATE-ARCHITECTURE.md#policy-and-compiled-boundaries): one source per policy, derived consumers, conditional agent pointers. | Changing a rule requires regenerating/checking its consumers; contradictory older template summaries are removed on adoption. |
-| F10 | [Template environments and deployment](README-TEMPLATE-ARCHITECTURE.md#template-environments-and-deployment): explicit manifest, inspect-before-retry deployment, isolated identities. Reconciliation is deferred. | A lost deployment response is resolved by inspection; dev and CI never share credentials. Surrounding provisioning and reconciliation are deferred. |
+| F1 | [Verification](ARCHITECTURE.md#testing): one policy-driven completion profile, full CI/end-state gates. | A type or behavior failure prevents completion even when fast checks pass. |
+| F2 | [Persistence and dispatch recovery](ARCHITECTURE.md#dispatch-and-recovery): transactional receipt and attempt, one lease-based recovery path, owned scheduled reconciliation. | Interrupt every dispatch boundary and recover without stranded tasks, consumed attempts, or concurrent sends. |
+| F3 | [The agent loop](ARCHITECTURE.md#the-agent-loop) and [Lifecycle and cancellation](ARCHITECTURE.md#lifecycle-and-cancellation): immutable terminals, active-attempt and token fencing on every runner write. | All terminal race orders, concurrent advances, fenced commits, and explicit retry preserve terminal history. |
+| F4 | [Admission and limits](ARCHITECTURE.md#limits-summary), [Timing](ARCHITECTURE.md#timing), and [Model calls](ARCHITECTURE.md#model-adapter-and-gateway-outcomes): atomic slot admission, database-enforced lease nesting, per-user gateway budgets and rate windows. | Last-slot contention, stale senders, every gateway outcome, and budget refusal converge. |
+| F5 | [Runtime parsing and authorization](ARCHITECTURE.md#database): every external adapter parses, including tool arguments, model outcomes, and stored blocks; domain decisions stay pure. | Malformed and oversized inputs fail at every boundary; branded IDs and exhaustive variants reject misuse. |
+| F6 | [Verification](ARCHITECTURE.md#testing): gateway requests are behavioral evidence. | A private refactor preserves tests; a wrong or duplicated model request fails them. |
+| F7 | [Policy and compiled boundaries](ARCHITECTURE.md#static-enforcement): source ownership plus transformed client reachability. | The canonical RPC passes; each negative fixture fails with its designated diagnostic. |
+| F8 | [Module map](ARCHITECTURE.md#runtime-composition): only `src/server.ts` composes feature runtime code; platform has no exception. | A platform-to-feature registration import fails enforcement. |
+| F9 | [Policy and compiled boundaries](ARCHITECTURE.md#static-enforcement): one source per policy, derived consumers, conditional agent pointers. | Changing a rule requires regenerating/checking its consumers; contradictory older template summaries are removed on adoption. |
+| F10 | [Template environments and deployment](ARCHITECTURE.md#environments-and-deployment): explicit manifest, inspect-before-retry deployment, isolated identities. Reconciliation is deferred. | A lost deployment response is resolved by inspection; dev and CI never share credentials. Surrounding provisioning and reconciliation are deferred. |
 
 ## Rerun the coverage check
 

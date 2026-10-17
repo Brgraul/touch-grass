@@ -1,8 +1,8 @@
 # Gaps in the template architecture
 
-A review of [README-TEMPLATE-ARCHITECTURE.md](README-TEMPLATE-ARCHITECTURE.md) made by walking its two reference features end to end. Each gap names the step where the walk stopped, why the document cannot answer it, and a proposed contract.
+A review of an earlier revision of the template architecture, made by walking its two reference features end to end. Each gap names the step where the walk stopped, why the document cannot answer it, and a proposed contract.
 
-**Status:** resolved in the architecture document. G1 to G10 follow the proposals below. G4 differs in one way: the in-application spend and token ledger was removed, and the AI gateway now owns budgets. That also removed request permits, so the permit-release rule proposed in G4 is moot. G11 is resolved by that same removal. A later adversarial review reshaped G3, G4, and G9 further. Steps now hold one model call plus pure tools only, and effect classes for non-pure tools moved to a deferred extension. The architecture document is the current contract. This file records why it changed.
+**Status:** resolved in [the architecture specification](ARCHITECTURE.md). G1 to G10 follow the proposals below. G4 differs in one way: the in-application spend and token ledger was removed, and the AI gateway now owns budgets. That also removed request permits, so the permit-release rule proposed in G4 is moot. G11 is resolved by that same removal. A later adversarial review reshaped G3, G4, and G9 further. Steps now hold one model call plus pure tools only, and effect classes for non-pure tools moved to a deferred extension. `ARCHITECTURE.md` is the current specification. This file records why it changed.
 
 **Method.** Trace one agent turn and one async agent task from the browser to PostgreSQL and back. At every hop, ask which module owns the step, which type crosses the boundary, and what happens on a retry or crash. A gap is a hop where the document gives no owner, no type, or two conflicting answers. The earlier [ARCHITECTURE.md](ARCHITECTURE.md) is used only to recover requirements the new document dropped.
 
