@@ -1,0 +1,84 @@
+project_id = "touch-grass"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public", "account_api", "agent_chat_api"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[db.migrations]
+enabled = true
+schema_paths = [
+  "./schemas/auth/schema.sql",
+  "./schemas/auth/routines.sql",
+  "./schemas/auth/grants.sql",
+  "./schemas/account/schema.sql",
+  "./schemas/account/tables.sql",
+  "./schemas/account/policies.sql",
+  "./schemas/account/routines.sql",
+  "./schemas/account/grants.sql",
+  "./schemas/agent-chat/schema.sql",
+  "./schemas/agent-chat/tables.sql",
+  "./schemas/agent-chat/indexes.sql",
+  "./schemas/agent-chat/policies.sql",
+  "./schemas/agent-chat/routines.sql",
+  "./schemas/agent-chat/grants.sql"
+]
+
+[db.seed]
+enabled = false
+
+[studio]
+enabled = true
+port = 54323
+
+[local_smtp]
+enabled = false
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["http://127.0.0.1:3000/auth/callback"]
+jwt_expiry = 3600
+enable_signup = true
+
+# Supabase CLI maps this flag to the whole email provider. Password sign-in for
+# admin-created test users needs it on. The before_user_created hook blocks email sign-up.
+[auth.email]
+enable_signup = true
+
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/auth_hooks/before_user_created"
+
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+skip_nonce_check = false
+
+[experimental.pgdelta]
+enabled = true
+
+# Each hosted project overrides the local site URL and redirect list. `project_id`
+# must match the project that `supabase config push` targets. Replace both
+# placeholders with the 20-letter project references (see README).
+[remotes.dev]
+project_id = "devprojectrefplaceho"
+
+[remotes.dev.auth]
+site_url = "https://touch-grass-dev.example.workers.dev"
+additional_redirect_urls = ["https://touch-grass-dev.example.workers.dev/auth/callback"]
+
+[remotes.production]
+project_id = "prodprojectrefplacho"
+
+[remotes.production.auth]
+site_url = "https://touch-grass-production.example.workers.dev"
+additional_redirect_urls = ["https://touch-grass-production.example.workers.dev/auth/callback"]

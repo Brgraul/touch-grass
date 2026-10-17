@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.output/
+.tanstack/
+.wrangler/
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
+supabase/.env*
+supabase/.temp/
+supabase/.branches/
+playwright-report/
+test-results/
+*.log

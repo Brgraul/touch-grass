@@ -146,6 +146,7 @@ src/
 supabase/
 	config.toml
 	schemas/
+		auth/                            The before_user_created hook
 		account/
 		agent-chat/
 	migrations/                          One globally ordered ledger
@@ -280,7 +281,7 @@ Conventions every feature follows:
 - **Receipts.** Every create returns a discriminated receipt: the stored result, `key_conflict` when the same key arrives with different input, or a refusal.
 - **Pagination.** Lists use keyset pagination. A `PageCursor` is an opaque base64url encoding of the last item's sort key. The page size is 25 and the maximum is 50.
 - **Times.** PostgreSQL time decides every deadline and window. Worker clocks only measure relative durations.
-- **Errors.** Server functions return safe, typed errors. A safe error carries a stable code and a correlation ID, never a stack trace, SQL text, or provider body.
+- **Errors.** Server functions return safe, typed errors. A safe error carries a stable code and a correlation ID, never a stack trace, SQL text, or provider body. Invalid input returns the code `invalid_input`. A server function therefore parses its input with `parseInput` from `platform/auth.server.ts` inside its `safeResult` callback, behind a typed identity `.validator()`. A schema passed to `.validator()` throws before the handler runs, and the client would retry that throw as a transport failure.
 
 ## Authentication and account
 
@@ -295,20 +296,24 @@ Google is the only sign-in method. The template sends no email. `features/auth/`
 - The first sign-in creates the Supabase user. There is no separate sign-up flow.
 - `platform/auth.server.ts` exports `createRequestClient(request)`, which builds a Supabase client bound to the request's cookies, and `requireActor(request)`, which verifies the session with `auth.getUser()` and returns an `Actor` or throws an unauthenticated error.
 - The `_authenticated` layout route reads the session through the session query in `auth.queries.ts` and redirects unauthenticated visitors to `/login`. Route protection is navigation only. Every private server function calls `requireActor` itself.
-- Logout signs out through Supabase, clears the cookies, and calls `queryClient.clear()`.
+- Logout signs out through Supabase with `scope: 'local'`, so it revokes only the current session. It clears the cookies and calls `queryClient.clear()`. A failed logout shows an alert and keeps the user signed in.
 
 ### Auth configuration
 
-`supabase/config.toml` holds every Auth setting. Never change Auth settings in the Supabase dashboard.
+`supabase/config.toml` holds every Auth setting. Never change Auth settings in the Supabase dashboard. Local URLs use `127.0.0.1`, the host the dev server binds, so the OAuth callback lands on the origin that holds the PKCE verifier cookie.
 
 ```toml
 [auth]
-site_url = "http://localhost:3000"
-additional_redirect_urls = ["http://localhost:3000/auth/callback"]
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["http://127.0.0.1:3000/auth/callback"]
 enable_signup = true
 
 [auth.email]
-enable_signup = false
+enable_signup = true
+
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/auth_hooks/before_user_created"
 
 [auth.external.google]
 enabled = true
@@ -319,7 +324,9 @@ skip_nonce_check = false
 
 - Each hosted environment has a `[remotes.<environment>]` block with its `project_id`. Its `[remotes.<environment>.auth]` block sets `site_url` to the environment's `APP_URL` and `additional_redirect_urls` to `["<APP_URL>/auth/callback"]`.
 - `deploy.yml` applies the file with `supabase config push` (see [Deployment](#deployment)).
-- `[auth.email] enable_signup = false` blocks email sign-up. Email and password sign-in works only for users created through the admin API with the secret key, which only [test sign-in](#test-sign-in) does.
+- The Supabase CLI maps `[auth.email] enable_signup` to the whole email provider. Turning it off also turns off password sign-in, so it stays on.
+- The `before_user_created` hook blocks email sign-up instead. Supabase Auth calls `auth_hooks.before_user_created` before it creates a user through sign-up, a magic link, an anonymous sign-in, or an OAuth provider. The hook allows only `google` and rejects every other provider with HTTP 403. Users created through the admin API skip the hook, so email and password sign-in works only for users that [test sign-in](#test-sign-in) creates with the secret key.
+- `supabase/schemas/auth/` owns the hook. Its schema is `auth_hooks`, because Supabase owns `auth`. Execution is granted only to `supabase_auth_admin`.
 - Locally, the Supabase CLI reads the two Google variables from `supabase/.env`, which is gitignored. CI sets them to placeholder values. No CI test contacts Google.
 
 ### Google OAuth client
@@ -423,7 +430,7 @@ export const blocksFromAgentItems: z.ZodType<ContentBlock[], z.ZodTypeDef, unkno
 export const BLOCK_SCHEMA_VERSION = 1;
 ```
 
-A message is plain text of at most 32 KB. In an agent turn, every `tool_result` references a `tool_call` with the same `callId` in the same turn, and `unsupported` is never written. A text block holds at most 32 KB. A JSON value holds at most 16 KB serialized. A turn holds at most 64 blocks and 256 KB in total.
+A message is plain text of at most 32 KB, with no NUL character and no unpaired UTF-16 surrogate, because PostgreSQL and JSON cannot store them. `blocksFromAgentItems` replaces those characters with U+FFFD in model output, so they never fail a run and a replay stores the same blocks. In an agent turn, every `tool_result` references a `tool_call` with the same `callId` in the same turn, and `unsupported` is never written. A text block holds at most 32 KB. A JSON value holds at most 16 KB serialized. A turn holds at most 64 blocks and 256 KB in total.
 
 `agent-chat.service.server.ts` implements the use cases, the runner that the Workflow steps call, and the sweep.
 
@@ -507,9 +514,16 @@ export const CHAT_AGENT = new Agent({
 	name: 'chat',
 	instructions: SYSTEM_PROMPT,     // From agent-chat.model.ts
 	tools: TOOLS,                    // From agent-chat.tools.ts
-	toolNotFoundBehavior: 'return_error_to_model',
-	modelSettings: { maxTokens: MAX_OUTPUT_TOKENS },
+	// The pinned SDK sends maxTokens as max_tokens, which reasoning models reject.
+	modelSettings: { providerData: { max_completion_tokens: MAX_OUTPUT_TOKENS } },
 });
+
+// The pinned SDK reads these from the run configuration, not from the Agent.
+export const CHAT_RUN_CONFIG = {
+	tracingDisabled: true,
+	toolNotFoundBehavior: 'return_error_to_model',
+	toolErrorFormatter: () => TOOL_ERROR_OUTPUT,
+} satisfies Partial<RunConfig>;
 ```
 
 `toAgentInput(history, message)` in `agent-chat.model.ts` builds the run's input:
@@ -589,7 +603,7 @@ export function failureFromRunError(error: unknown): RunFailure | undefined;
 
 - `checkBeforeCall` fails with `limit: 'duration'` when `now` is at or past the deadline, and with `limit: 'steps'` when `step` exceeds `policy.maxSteps`.
 - `checkResponse` fails with `limit: 'tool_calls'` above `policy.maxToolCallsPerStep`, with `model_output_invalid: 'oversized'` when the turn would exceed the turn write caps, and with `model_output_invalid: 'truncated'` when the finish reason is the output token limit.
-- `turnBlocks` parses a response's items, plus each `function_call_result` item in the next request's input that answers one of its calls, with `blocksFromAgentItems`. Arguments that are not valid JSON become `{ unparsed }`.
+- `turnBlocks` parses a response's items, plus each `function_call_result` item in the next request's input that answers one of its calls, with `blocksFromAgentItems`. Arguments that are not valid JSON become `{ unparsed }`. The SDK wraps a tool result as `{ type: 'text', text }`. `blocksFromAgentItems` stores the parsed JSON inside it, and stores a result that is not JSON, such as the SDK's argument-parse message, with `isError: true`.
 - `failureFromRunError` maps an error that escapes the SDK run to a failure. It returns `undefined` for `RunEnded`, because the run is already terminal.
 
 ### Policy and timing defaults
@@ -634,13 +648,14 @@ export class AgentChatWorkflow extends WorkflowEntrypoint<Env, unknown> {
 		if (start.kind === 'ended') return;
 		const model = new DurableModel(step, runner, start.input, start.now);
 		try {
-			const result = await new Runner({ model, tracingDisabled: true }).run(
+			const result = await new Runner({ model, ...CHAT_RUN_CONFIG }).run(
 				CHAT_AGENT,
 				toAgentInput(start.input.history, start.input.message),
 				{ maxTurns: start.input.policy.maxSteps + 1 },
 			);
 			await model.commitFinal(result);
 		} catch (error) {
+			if (isEngineControl(error)) throw error;
 			const failure = failureFromRunError(error);
 			if (failure) await step.do('fail', () => runner.fail(runId, failure));
 		}
@@ -674,6 +689,9 @@ Workflow rules:
 - Code outside `step.do` is deterministic. SDK tracing is disabled, so no trace export runs on replay, and no trace data leaves the Worker.
 - `DurableModel` holds no domain logic. Every check is a function in `agent-chat.model.ts`.
 - `maxTurns` is one above `policy.maxSteps`, so `checkBeforeCall` reports the step limit after the last step is committed. `MaxTurnsExceededError` is only a backstop.
+- A pause, restart, or engine shutdown rejects the pending `step.do`. `isEngineControl` recognizes that rejection, and both `DurableModel` and `run` rethrow it. Without this, the catch-all would record `model_retries` or `internal` on a run that Workflows is about to resume.
+- `runner.callModel` runs the model call inside `withTrace(new NoopTrace(), ...)`. A step runs outside the SDK run's trace context, and the Chat Completions model throws "No existing trace found" without one.
+- `agent-chat.workflow.server.ts` also exports `workflowRuns(binding)`, which builds `WorkflowRuns`. `start` treats only an "already exists" error as success and rethrows every other error. `src/server.ts` and the integration tests use the same factory.
 
 ### Commit and failure routines
 
@@ -687,7 +705,7 @@ Workflow rules:
 6. If `p_final` is true, complete the run with `final_turn_id` and `ended_at`.
 7. Return `ended` for a final step, or `committed` with PostgreSQL `now`.
 
-`fail_run(p_run_id, p_failure)` locks the run row. If the run is nonterminal, it records the failure. It returns the durable winner either way.
+`fail_run(p_run_id, p_failure)` locks the run row. If the run is nonterminal, it records the failure. When PostgreSQL `now` is at or past the deadline, it records `limit: 'duration'` instead of the given failure, so a deadline that passes during a retry backoff ends as `duration`. It returns the durable winner either way.
 
 ### Why the loop is safe
 
@@ -705,7 +723,7 @@ The template accepts one cost. A model call repeats when its step's result fails
 `platform/model.server.ts` exports `createModelProvider(env)` and `classifyProviderError(error)`. Neither function knows anything about chat.
 
 - `createModelProvider` returns an SDK `OpenAIProvider` for the Chat Completions API at `LLM_BASE_URL`, with `LLM_API_KEY` and the default model `LLM_MODEL`. The client's own retries are off (`maxRetries: 0`), because Workflows retries model steps.
-- `classifyProviderError` maps the error a model call throws to one `ProviderErrorKind`: `retryable`, `context_length`, `quota`, `policy`, `configuration`, or `unknown`. `src/platform/model.server.test.ts` runs it against recorded fixtures of the chosen provider's error responses.
+- `classifyProviderError` matches the pinned `openai` error classes with `instanceof`, because every class has `name === 'Error'`. It maps the error a model call throws to one `ProviderErrorKind`: `retryable`, `context_length`, `quota`, `policy`, `configuration`, or `unknown`. `src/platform/model.server.test.ts` runs it against recorded fixtures of the chosen provider's error responses.
 
 | Provider outcome | Result | Run behavior |
 |---|---|---|
@@ -713,7 +731,7 @@ The template accepts one cost. A model call repeats when its step's result fails
 | Response blocks exceed the turn write caps | `model_output_invalid: 'oversized'` | The run fails |
 | More tool calls than `MAX_TOOL_CALLS_PER_STEP` | `limit: 'tool_calls'` | The run fails |
 | Finish reason is the output token limit | `model_output_invalid: 'truncated'` | The run fails |
-| `retryable`: rate limit, 5xx, overloaded, abort at the timeout, network loss | `'retry'` | Workflows retries the model step after its backoff |
+| `retryable`: rate limit, 5xx, overloaded, abort at the timeout, network loss (including a body cut off after the headers, which the client's `fetch` in `platform/model.server.ts` reads whole and turns into a connection error) | `'retry'` | Workflows retries the model step after its backoff |
 | `context_length` | `limit: 'context'` | The run fails |
 | `quota`, `policy`, `configuration` | `provider_refused` with the same reason | The run fails |
 | `unknown` | `execution` with `unclassified_provider_response` | The run fails |
@@ -747,7 +765,7 @@ Workflows' retry backoff does not read the provider's `Retry-After` header. The 
 | Tool calls per step, response size, truncation | `checkResponse` |
 | History sent to the model | `toAgentInput`, by `MAX_HISTORY_RUNS` and `MAX_HISTORY_BYTES` |
 | Prompt size | The provider's context-length error |
-| Output tokens per call | `maxTokens` in the agent's model settings |
+| Output tokens per call | `max_completion_tokens` in the agent's model settings `providerData` |
 | Message, block, and turn size | Write schemas at the RPC boundary |
 | A run that never ends | The sweep, at `deadline + END_CHECK_GRACE` |
 
@@ -862,7 +880,7 @@ Routines in `agent_chat_api`:
 | `sweep_candidates` | Invoker, `service_role` | The sweep |
 | `list_conversations`, `read_conversation` | Invoker, `authenticated` | The service, with the caller's JWT |
 
-Lock order: `submit_message` takes the environment's advisory lock before it touches any row. Every other routine locks only the run row. No routine holds a lock while a provider call runs, because every provider call runs in its own Workflow step, outside every transaction.
+Lock order: `submit_message` takes the environment's advisory lock before it touches any row. Every other routine locks the run row before it touches any other row. `commit_step` and `submit_message` also update the conversation row, and neither locks a run row after it, so no lock cycle exists. No routine holds a lock while a provider call runs, because every provider call runs in its own Workflow step, outside every transaction.
 
 ### Agent-turn write boundary
 
@@ -943,7 +961,7 @@ export function useIdempotentMutation<Input, Result>(spec: MutationSpec<Input, R
 }): MutationHandle<Input, Result>;
 ```
 
-- `MutationHandle` is TanStack Query's mutation result, with `submit(input)` in place of `mutate`.
+- `MutationHandle` is TanStack Query's mutation result, with `submit(input)` in place of `mutate`. `submit` resolves to `undefined` after a transport failure instead of rejecting, and the failure renders from `isError`.
 - Both hooks retry a thrown error up to 3 times with exponential backoff. A server function returns its safe errors and refusals as values, so only transport failures throw.
 - On success, both hooks invalidate the keys `invalidate` returns.
 - `sendMessage` uses `useKeyedMutation`. `updateProfile`, `stopRun`, and `startGoogleSignIn` use `useIdempotentMutation`.
@@ -1063,6 +1081,7 @@ Fixtures under `tools/boundary-enforcement/fixtures/` prove each check, and `too
 | Pure logic | `src/features/<feature>/<feature>.model.test.ts` | Vitest |
 | Provider error classification | `src/platform/model.server.test.ts` | Vitest against recorded provider fixtures |
 | Database security | `supabase/tests/` | SQL tests through the Supabase CLI |
+| Database concurrency | `tests/database/races.ts` | Node against the local database, with real concurrent connections |
 | Boundary enforcement | `tools/boundary-enforcement/boundary-enforcement.test.ts` | Vitest driving the checkers |
 
 `tests/fixtures/` holds the deterministic provider double. It serves the OpenAI-compatible endpoint, returns scripted responses for every row of the classification table, can delay a response past `MODEL_CALL_TIMEOUT`, and records every request. Database failpoints are test-only hooks in the integration harness that inject a transient error or pause a transaction.
@@ -1079,7 +1098,7 @@ CI runs the journeys with the provider double. A separate live smoke test, run b
 
 ### Required proofs
 
-Each row is at least one integration or database test.
+Each row is at least one integration or database test. One case is a unit test instead: oversized tool output runs through the real SDK `Runner` with a test-only tool, because `calculate` cannot produce 16 KB.
 
 | Scenario | Observable assertion |
 |---|---|
@@ -1123,9 +1142,12 @@ Each row is at least one integration or database test.
 | `pnpm check:repo` | `check-repo.ts`. It compares migrations against the pull request's base branch in CI and against `origin/main` locally. |
 | `pnpm check:fast` | `lint`, `check:boundaries`, and `check:repo` |
 | `pnpm gen:architecture` | Renders `ARCHITECTURE.md` from `policy.ts` |
+| `pnpm cf:types` | Regenerates the committed `worker-configuration.d.ts` with `wrangler types`, reading secret names from `.dev.vars.example`. It rewrites the two types Wrangler infers from `src/server.ts`, because importing the entry module into the global `Env` makes TypeScript lose the router's request context type. `--check` fails when the committed file is stale. |
 | `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm test` | Vitest unit, integration, and architecture tests |
+| `pnpm test` | Vitest unit and architecture tests. Fast and offline. |
+| `pnpm test:workers` | Vitest integration tests in the Workers runtime, against the local database and the provider double |
 | `pnpm test:db` | SQL tests in `supabase/tests/` |
+| `pnpm test:db:races` | Concurrent admission, capacity, and terminal-order races in `tests/database/races.ts` |
 | `pnpm test:e2e` | Playwright journeys |
 | `pnpm check:bundle` | Production build and client-bundle inspection |
 | `pnpm check` | Everything above against a freshly reset local database, then `db:types` with a failure on any diff. CI runs this. |
@@ -1147,7 +1169,7 @@ If a check cannot run, report it as not run. Never claim success without it.
 ### CI
 
 - `ci.yml` installs the pinned pnpm and dependencies, starts the local Supabase stack, and runs `pnpm check`. It runs on every pull request and blocks merging on failure.
-- `deploy.yml` runs on `main` behind a GitHub environment with required approval for production. It applies Auth configuration with `supabase config push`, applies migrations with `supabase db push`, deploys with `wrangler deploy`, and runs `pnpm verify:deployed`. A deployment with unrun or failing verification is reported as `unverified`.
+- `deploy.yml` runs on `main` behind a GitHub environment with required approval for production. It applies migrations with `supabase db push`, applies Auth configuration with `supabase config push`, deploys with `wrangler deploy`, and runs `pnpm verify:deployed`. A deployment with unrun or failing verification is reported as `unverified`.
 
 ## Environments and deployment
 
@@ -1157,8 +1179,8 @@ Each deployed environment is a named environment in `wrangler.jsonc` (`dev` and 
 
 ### Deployment
 
-1. Apply `supabase/config.toml` with `supabase config push` using the pinned Supabase CLI.
-2. Apply migrations from the ledger with the pinned Supabase CLI.
+1. Apply migrations from the ledger with the pinned Supabase CLI.
+2. Apply `supabase/config.toml` with `supabase config push` using the pinned Supabase CLI. It runs after the migrations because it enables the `before_user_created` hook, which calls a migrated function.
 3. Deploy the Worker with the pinned Wrangler.
 4. Run `pnpm verify:deployed --env <name>`.
 
@@ -1271,16 +1293,16 @@ These questions need evidence from the pinned versions before their unit's gate.
 - Does the pinned Oxlint run repo-owned JS plugin rules that inspect `className` strings, type-assertion targets, and member access on `env`? If not, run those rules in a separate pass with the TypeScript compiler API and keep them in `tools/boundary-enforcement/lint-rules/`.
 - Do the chosen provider's error bodies separate quota, rate-limit, and policy refusals? Record its fixtures for `src/platform/model.server.test.ts`.
 - How long does a run take from `sendMessage` to its first saved step? Record the Workflow start time separately from the model call time.
-- Does the pinned `@openai/agents` run in a Worker with `nodejs_compat` and against an OpenAI-compatible Chat Completions endpoint? Does `new Runner({ model, tracingDisabled: true })` accept a custom `Model` and turn off every trace export?
+- Does the pinned `@openai/agents` run in a Worker with `nodejs_compat` and against an OpenAI-compatible Chat Completions endpoint? Does `new Runner({ model, tracingDisabled: true })` accept a custom `Model` and turn off every trace export? Yes to both, measured locally in workerd. A model call inside a step needs a trace context (see [The Workflow](#the-workflow)). With `tracingDisabled: true`, a recording processor sees zero trace events, against 12 with tracing on.
 - Is the SDK loop deterministic on replay? It must make the same model calls in the same order, given the same saved responses, with no random or time-based input that changes the order.
-- Can a `ModelResponse` round-trip through JSON as a step result, including `usage`, and does the SDK expose the Chat Completions finish reason so `checkResponse` can detect truncation?
-- How does the pinned SDK count `maxTurns`, and how does it handle tool arguments that are not valid JSON? The spec assumes they become a tool error the model can read.
-- Does `create` with an existing instance ID fail with an error `WorkflowRuns.start` can recognize?
-- After a step's retries run out, does `step.do` rethrow the last attempt's error? Does a step timeout surface as a retryable error?
+- Can a `ModelResponse` round-trip through JSON as a step result, including `usage`, and does the SDK expose the Chat Completions finish reason so `checkResponse` can detect truncation? Not as-is. `usage` is a `Usage` class instance, so the step saves `SavedModelResponse` and rebuilds `Usage`. The finish reason exists only in `providerData`. An empty truncated completion throws a `ModelBehaviorError` with a fixed message, which `isTruncatedModelError` matches.
+- How does the pinned SDK count `maxTurns`, and how does it handle tool arguments that are not valid JSON? The spec assumes they become a tool error the model can read. One turn is one model call, and the SDK throws when the turn count passes `maxTurns` at the start of a turn. Unparsable arguments skip the tool and return a fixed parse-error message to the model, which the turn stores with `isError: true`.
+- Does `create` with an existing instance ID fail with an error `WorkflowRuns.start` can recognize? Locally, yes: a `WorkflowError` whose message contains `instance.already_exists`. Not yet checked on hosted Workflows.
+- After a step's retries run out, does `step.do` rethrow the last attempt's error? Does a step timeout surface as a retryable error? Locally, yes to both. Not yet checked on hosted Workflows.
 - Does the Workers Free CPU limit for Workflow steps (10 ms per step at the time of writing) hold for replaying the SDK loop and parsing a 256 KB response?
 - Can Vitest with `@cloudflare/vitest-pool-workers` run the Workflow and the provider double with crash and failure injection?
 - Does the hosted Supabase `postgres` role allow creating the `nologin` committer role, granting it to `postgres`, and transferring function ownership as written?
 - Does `supabase config push` apply the `[remotes.<environment>]` Auth overrides and resolve the Google `env()` values? If not, `deploy.yml` sets the same values through the Supabase Management API auth config endpoint.
-- Does `auth.signInWithPassword` succeed for an admin-created user while `[auth.email] enable_signup = false`?
+- Does `auth.signInWithPassword` succeed for an admin-created user while `[auth.email] enable_signup = false`? No. Supabase Auth v2.197.0 returns "Email logins are disabled". [Auth configuration](#auth-configuration) keeps the email provider on and blocks email sign-up with the `before_user_created` hook.
 - Does `startGoogleSignIn` through `@supabase/ssr` on Workers store the PKCE verifier cookie that `/auth/callback` reads?
 - Do the free plans handle the CPU, Workflow concurrency, cron schedule, storage, step counts, and CI workload for the reference journeys? Record run counts, spread, and the limiting resource for every measurement.

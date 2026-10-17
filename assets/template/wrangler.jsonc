@@ -1,0 +1,52 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "touch-grass-app",
+  "compatibility_date": "2026-10-17",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "src/server.ts",
+  "observability": { "enabled": true, "traces": { "enabled": true } },
+
+  // Top level is the local stack. Wrangler does not inherit `vars`, `workflows`, or
+  // `triggers` into an environment, so each environment below declares its own.
+  "workflows": [{ "name": "agent-chat", "binding": "AGENT_CHAT_WORKFLOW", "class_name": "AgentChatWorkflow" }],
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": {
+    "ENVIRONMENT_ID": "00000000-0000-4000-8000-000000000001",
+    "APP_URL": "http://127.0.0.1:3000",
+    "SUPABASE_URL": "http://127.0.0.1:54321",
+    "SUPABASE_PUBLISHABLE_KEY": "local-publishable-key",
+    "LLM_BASE_URL": "http://127.0.0.1:4010/v1",
+    "LLM_MODEL": "test-model"
+  },
+
+  // Replace every placeholder value (`example`, `*-project`, `configure-*`) before the
+  // first deploy. `pnpm verify:deployed` refuses to run while a placeholder remains.
+  "env": {
+    "dev": {
+      "name": "touch-grass-dev",
+      "workflows": [{ "name": "agent-chat-dev", "binding": "AGENT_CHAT_WORKFLOW", "class_name": "AgentChatWorkflow" }],
+      "triggers": { "crons": ["* * * * *"] },
+      "vars": {
+        "ENVIRONMENT_ID": "00000000-0000-4000-8000-000000000002",
+        "APP_URL": "https://touch-grass-dev.example.workers.dev",
+        "SUPABASE_URL": "https://dev-project.supabase.co",
+        "SUPABASE_PUBLISHABLE_KEY": "configure-publishable-key",
+        "LLM_BASE_URL": "https://api.openai.com/v1",
+        "LLM_MODEL": "gpt-5-mini"
+      }
+    },
+    "production": {
+      "name": "touch-grass-production",
+      "workflows": [{ "name": "agent-chat-production", "binding": "AGENT_CHAT_WORKFLOW", "class_name": "AgentChatWorkflow" }],
+      "triggers": { "crons": ["* * * * *"] },
+      "vars": {
+        "ENVIRONMENT_ID": "00000000-0000-4000-8000-000000000003",
+        "APP_URL": "https://touch-grass-production.example.workers.dev",
+        "SUPABASE_URL": "https://production-project.supabase.co",
+        "SUPABASE_PUBLISHABLE_KEY": "configure-publishable-key",
+        "LLM_BASE_URL": "https://api.openai.com/v1",
+        "LLM_MODEL": "gpt-5-mini"
+      }
+    }
+  }
+}

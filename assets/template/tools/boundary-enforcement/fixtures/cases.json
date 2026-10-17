@@ -1,0 +1,859 @@
+[
+  {
+    "id": "pure-positive",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "export const twice = (value: number) => value * 2;",
+    "expected": []
+  },
+  {
+    "id": "pure-fetch",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "export const value = fetch(\"/data\");",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.tools.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-clock",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "export const value = Date.now();",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.tools.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-random",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "export const value = Math.random();",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.tools.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-runtime",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "export const value = process.env;",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.tools.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-import",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "import { value } from \"./private.server\"; export const answer = value;",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.tools.ts"
+      }
+    ]
+  },
+  {
+    "id": "client-positive",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export function Page() { return <div className=\"bg-background text-foreground\">Hello</div>; }",
+    "expected": []
+  },
+  {
+    "id": "client-fetch",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const load = () => fetch(\"/data\");",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "client-mutation",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const save = () => useMutation({ mutationFn: persist });",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "client-query",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const query = { queryFn: () => 1 };",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "adapter-positive",
+    "kind": "source",
+    "path": "src/platform/model.server.ts",
+    "source": "import OpenAI from \"openai\"; export const client = new OpenAI();",
+    "expected": []
+  },
+  {
+    "id": "adapter-import",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "import OpenAI from \"openai\"; export const client = new OpenAI();",
+    "expected": [
+      {
+        "rule": "model-adapter",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "adapter-alias",
+    "kind": "source",
+    "path": "src/features/demo/demo.agent.ts",
+    "source": "import { OpenAIProvider as Provider } from \"@openai/agents\"; export const provider = new Provider();",
+    "expected": [
+      {
+        "rule": "model-adapter",
+        "path": "src/features/demo/demo.agent.ts"
+      }
+    ]
+  },
+  {
+    "id": "environment-positive",
+    "kind": "source",
+    "path": "src/platform/env.server.ts",
+    "source": "export const read = (env: Env) => env.LLM_API_KEY;",
+    "expected": []
+  },
+  {
+    "id": "environment-binding-positive",
+    "kind": "source",
+    "path": "src/server.ts",
+    "source": "export const read = (env: Env) => env.AGENT_CHAT_WORKFLOW;",
+    "expected": []
+  },
+  {
+    "id": "environment-read",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export const read = (env: Env) => env.LLM_API_KEY;",
+    "expected": [
+      {
+        "rule": "env-access",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "environment-destructure",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export function read(env: Env) { const { LLM_API_KEY } = env; return LLM_API_KEY; }",
+    "expected": [
+      {
+        "rule": "env-access",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "environment-workflow",
+    "kind": "source",
+    "path": "src/features/demo/demo.workflow.server.ts",
+    "source": "export class Flow { run() { return this.env.LLM_API_KEY; } }",
+    "expected": [
+      {
+        "rule": "env-access",
+        "path": "src/features/demo/demo.workflow.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "signin-positive",
+    "kind": "source",
+    "path": "tests/fixtures/test-users.ts",
+    "source": "export const signIn = () => client.auth.signInWithPassword({ email: \"test\", password: \"test\" });",
+    "expected": []
+  },
+  {
+    "id": "signin-password",
+    "kind": "source",
+    "path": "src/features/auth/auth.functions.ts",
+    "source": "export const signIn = () => client.auth.signInWithPassword({ email: \"test\", password: \"test\" });",
+    "expected": [
+      {
+        "rule": "test-sign-in",
+        "path": "src/features/auth/auth.functions.ts"
+      }
+    ]
+  },
+  {
+    "id": "signin-admin",
+    "kind": "source",
+    "path": "src/platform/auth.server.ts",
+    "source": "export const create = () => client.auth.admin.createUser({});",
+    "expected": [
+      {
+        "rule": "test-sign-in",
+        "path": "src/platform/auth.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "brand-positive",
+    "kind": "source",
+    "path": "src/platform/ids.ts",
+    "source": "export const id = \"known\" as UserId;",
+    "expected": []
+  },
+  {
+    "id": "brand-caller",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const id = \"known\" as UserId;",
+    "expected": [
+      {
+        "rule": "brand-cast",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "export-positive",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "const value = 1; export { value };",
+    "expected": []
+  },
+  {
+    "id": "export-module",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "export { value } from \"./other\";",
+    "expected": [
+      {
+        "rule": "no-reexport",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "export-imported",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "import { value } from \"./other\"; export { value };",
+    "expected": [
+      {
+        "rule": "no-reexport",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "styling-palette",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = () => <div className=\"bg-zinc-900\" />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-hex",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = () => <div className=\"bg-[#ffffff]\" />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-style",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = () => <div style={{ color: \"red\" }} />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-white",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = () => <div className=\"bg-white\" />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-black",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = () => <div className=\"text-black\" />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-opacity",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = () => <div className=\"hover:bg-black/50\" />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-border-side",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = () => <div className=\"border-t-red-500\" />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-divide",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = () => <div className=\"divide-gray-200\" />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-ring",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = () => <div className=\"ring-blue-500/50\" />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-fill",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = () => <div className=\"fill-slate-900\" />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-stroke",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = () => <div className=\"stroke-black\" />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-arbitrary-function",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = () => <div className=\"bg-[rgb(0,0,0)]\" />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-arbitrary-variant",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = () => <div className=\"data-[state=open]:shadow-[0_0_4px_#000]\" />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-template-head",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = (size: string) => <div className={`bg-black ${size}`} />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-template-tail",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = (size: string) => <div className={`${size} text-white`} />;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-tokens-positive",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const Page = () => <div className=\"border-t border-border bg-primary/90 text-primary-foreground ring-ring/50 divide-border fill-primary stroke-current bg-transparent shadow-xs ring-[3px] hover:bg-accent dark:bg-input/30 border-destructive/40\" />;",
+    "expected": []
+  },
+  {
+    "id": "repo-positive",
+    "kind": "repo",
+    "files": {},
+    "expected": []
+  },
+  {
+    "id": "repo-eslint",
+    "kind": "repo",
+    "files": {
+      "package.json": {
+        "devDependencies": {
+          "eslint": "9.0.0"
+        }
+      }
+    },
+    "expected": [
+      {
+        "rule": "banned-package",
+        "path": "package.json"
+      }
+    ]
+  },
+  {
+    "id": "repo-state",
+    "kind": "repo",
+    "files": {
+      "package.json": {
+        "dependencies": {
+          "zustand": "5.0.0"
+        }
+      }
+    },
+    "expected": [
+      {
+        "rule": "banned-package",
+        "path": "package.json"
+      }
+    ]
+  },
+  {
+    "id": "repo-range",
+    "kind": "repo",
+    "files": {
+      "package.json": {
+        "dependencies": {
+          "react": "^19.0.0"
+        }
+      }
+    },
+    "expected": [
+      {
+        "rule": "version-pin",
+        "path": "package.json"
+      }
+    ]
+  },
+  {
+    "id": "repo-style",
+    "kind": "repo",
+    "files": {
+      "src/styles/extra.css": "body {}"
+    },
+    "expected": [
+      {
+        "rule": "forbidden-file",
+        "path": "src/styles/extra.css"
+      }
+    ]
+  },
+  {
+    "id": "repo-config",
+    "kind": "repo",
+    "files": {
+      "tailwind.config.js": "export default {};"
+    },
+    "expected": [
+      {
+        "rule": "forbidden-file",
+        "path": "tailwind.config.js"
+      }
+    ]
+  },
+  {
+    "id": "repo-doc",
+    "kind": "repo",
+    "files": {
+      "ARCHITECTURE.md": "stale"
+    },
+    "expected": [
+      {
+        "rule": "generated-architecture",
+        "path": "ARCHITECTURE.md"
+      }
+    ]
+  },
+  {
+    "id": "repo-migration-change",
+    "kind": "repo",
+    "files": {
+      "supabase/migrations/20260101000000_initial.sql": "select 2;\n"
+    },
+    "expected": [
+      {
+        "rule": "migration-ledger",
+        "path": "supabase/migrations/20260101000000_initial.sql"
+      }
+    ]
+  },
+  {
+    "id": "repo-migration-delete",
+    "kind": "repo",
+    "files": {
+      "supabase/migrations/20260101000000_initial.sql": null
+    },
+    "expected": [
+      {
+        "rule": "migration-ledger",
+        "path": "supabase/migrations/20260101000000_initial.sql"
+      }
+    ]
+  },
+  {
+    "id": "repo-migration-order",
+    "kind": "repo",
+    "files": {
+      "supabase/migrations/20250101000000_earlier.sql": "select 1;\n"
+    },
+    "expected": [
+      {
+        "rule": "migration-ledger",
+        "path": "supabase/migrations/20250101000000_earlier.sql"
+      }
+    ]
+  },
+  {
+    "id": "edge-positive",
+    "kind": "edge",
+    "files": {
+      "src/features/demo/ui/page.tsx": "import { query } from \"../demo.queries\"; export const Page = () => query;",
+      "src/features/demo/demo.queries.ts": "import { load } from \"./demo.functions\"; export const query = load;",
+      "src/features/demo/demo.functions.ts": "import { read } from \"./demo.repo.server\"; export const load = read;",
+      "src/features/demo/demo.repo.server.ts": "export const read = () => 1;"
+    },
+    "expected": []
+  },
+  {
+    "id": "edge-demo.repo.server",
+    "kind": "edge",
+    "files": {
+      "src/features/demo/ui/page.tsx": "import { read } from \"../demo.repo.server\"; export const Page = () => read;",
+      "src/features/demo/demo.queries.ts": "import { load } from \"./demo.functions\"; export const query = load;",
+      "src/features/demo/demo.functions.ts": "import { read } from \"./demo.repo.server\"; export const load = read;",
+      "src/features/demo/demo.repo.server.ts": "export const read = () => 1;"
+    },
+    "expected": [
+      {
+        "rule": "ownership-ui-demo",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "edge-demo.functions",
+    "kind": "edge",
+    "files": {
+      "src/features/demo/ui/page.tsx": "import { read } from \"../demo.functions\"; export const Page = () => read;",
+      "src/features/demo/demo.queries.ts": "import { load } from \"./demo.functions\"; export const query = load;",
+      "src/features/demo/demo.functions.ts": "export const read = () => 1;",
+      "src/features/demo/demo.repo.server.ts": "export const read = () => 1;"
+    },
+    "expected": [
+      {
+        "rule": "ownership-ui-demo",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "edge-demo.model",
+    "kind": "edge",
+    "files": {
+      "src/features/demo/ui/page.tsx": "import { read } from \"../demo.model\"; export const Page = () => read;",
+      "src/features/demo/demo.queries.ts": "import { load } from \"./demo.functions\"; export const query = load;",
+      "src/features/demo/demo.functions.ts": "import { read } from \"./demo.repo.server\"; export const load = read;",
+      "src/features/demo/demo.repo.server.ts": "export const read = () => 1;",
+      "src/features/demo/demo.model.ts": "export const read = () => 1;"
+    },
+    "expected": [
+      {
+        "rule": "ownership-ui-demo",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "edge-server-package",
+    "kind": "edge",
+    "files": {
+      "src/features/demo/ui/page.tsx": "import OpenAI from \"openai\"; export const Page = () => OpenAI;"
+    },
+    "expected": [
+      {
+        "rule": "package",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "edge-route-function",
+    "kind": "edge",
+    "files": {
+      "src/routes/page.tsx": "import { load } from \"../features/demo/demo.functions\"; export const Page = load;",
+      "src/features/demo/demo.functions.ts": "export const load = () => 1;"
+    },
+    "expected": [
+      {
+        "rule": "ownership-route",
+        "path": "src/routes/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "edge-composition",
+    "kind": "edge",
+    "files": {
+      "src/platform/registry.server.ts": "import { Flow } from \"../features/demo/demo.workflow.server\"; export const flow = Flow;",
+      "src/features/demo/demo.workflow.server.ts": "export class Flow {}"
+    },
+    "expected": [
+      {
+        "rule": "composition-root",
+        "path": "src/platform/registry.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "edge-cross-feature",
+    "kind": "edge",
+    "files": {
+      "src/features/demo/demo.model.ts": "import { value } from \"../other/other.model\"; export const answer = value;",
+      "src/features/other/other.model.ts": "export const value = 1;"
+    },
+    "expected": [
+      {
+        "rule": "ownership-model-demo",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "edge-cycle",
+    "kind": "edge",
+    "files": {
+      "src/features/demo/demo.model.ts": "import type { Other } from \"../other/other.schema\"; export type Demo = Other;",
+      "src/features/demo/demo.schema.ts": "export type Value = number;",
+      "src/features/other/other.model.ts": "import type { Value } from \"../demo/demo.schema\"; export type OtherModel = Value;",
+      "src/features/other/other.schema.ts": "export type Other = number;"
+    },
+    "expected": [
+      {
+        "rule": "feature-cycle",
+        "path": "src/features/demo"
+      }
+    ]
+  },
+  {
+    "id": "bundle-positive",
+    "kind": "bundle",
+    "modules": [
+      "/app/src/features/demo/demo.functions.ts?client-rpc"
+    ],
+    "source": "export const rpc = () => 1;",
+    "expected": []
+  },
+  {
+    "id": "bundle-repository",
+    "kind": "bundle",
+    "modules": [
+      "/app/src/features/demo/demo.repo.server.ts"
+    ],
+    "source": "export const value = 1;",
+    "expected": [
+      {
+        "rule": "client-reachability",
+        "path": "assets/main.js"
+      }
+    ]
+  },
+  {
+    "id": "bundle-helper",
+    "kind": "bundle",
+    "modules": [
+      "/app/src/components/ui/helper.ts",
+      "/app/src/platform/auth.server.ts"
+    ],
+    "source": "export const helper = () => 1;",
+    "expected": [
+      {
+        "rule": "client-reachability",
+        "path": "assets/main.js"
+      }
+    ]
+  },
+  {
+    "id": "bundle-exported-helper",
+    "kind": "bundle",
+    "modules": [
+      "/app/src/features/demo/demo.functions.ts",
+      "/app/node_modules/@supabase/supabase-js/index.js"
+    ],
+    "source": "export const helper = () => 1;",
+    "expected": [
+      {
+        "rule": "client-reachability",
+        "path": "assets/main.js"
+      }
+    ]
+  },
+  {
+    "id": "bundle-sentinel",
+    "kind": "bundle",
+    "modules": [
+      "/app/src/features/demo/ui/page.tsx"
+    ],
+    "source": "export const key = \"TOUCH_GRASS_SERVER_SECRET_SENTINEL_4b8ae730\";",
+    "expected": [
+      {
+        "rule": "client-reachability",
+        "path": "assets/main.js"
+      }
+    ]
+  },
+  {
+    "id": "bundle-secret-name",
+    "kind": "bundle",
+    "modules": [
+      "/app/src/features/demo/ui/page.tsx"
+    ],
+    "source": "export const key = \"LLM_API_KEY\";",
+    "expected": [
+      {
+        "rule": "client-reachability",
+        "path": "assets/main.js"
+      }
+    ]
+  },
+  {
+    "id": "bundle-framework-server-package",
+    "kind": "bundle",
+    "modules": [
+      "/app/node_modules/@tanstack/start-server-core/index.js"
+    ],
+    "source": "export const leaked = true;",
+    "expected": [
+      {
+        "rule": "client-reachability",
+        "path": "assets/main.js"
+      }
+    ]
+  },
+  {
+    "id": "bundle-runtime-module",
+    "kind": "bundle",
+    "modules": [
+      "__vite-browser-external:node:crypto"
+    ],
+    "source": "export const leaked = true;",
+    "expected": [
+      {
+        "rule": "client-reachability",
+        "path": "assets/main.js"
+      }
+    ]
+  },
+  {
+    "id": "repo-auth-urls",
+    "kind": "repo",
+    "files": {
+      "wrangler.jsonc": "{\n  // comments are allowed\n  \"env\": { \"dev\": { \"vars\": { \"APP_URL\": \"https://app.example.test\" } } }\n}\n",
+      "supabase/config.toml": "[remotes.dev.auth]\nsite_url = \"http://localhost:3000\"\nadditional_redirect_urls = [\"https://app.example.test/auth/callback\"]\n"
+    },
+    "expected": [
+      {
+        "rule": "auth-urls",
+        "path": "supabase/config.toml"
+      }
+    ]
+  },
+  {
+    "id": "repo-auth-urls-match",
+    "kind": "repo",
+    "files": {
+      "wrangler.jsonc": "{\n  // comments are allowed\n  \"env\": { \"dev\": { \"vars\": { \"APP_URL\": \"https://app.example.test\" } } }\n}\n",
+      "supabase/config.toml": "[remotes.dev.auth]\nsite_url = \"https://app.example.test\"\nadditional_redirect_urls = [\"https://app.example.test/auth/callback\"]\n"
+    },
+    "expected": []
+  }
+]

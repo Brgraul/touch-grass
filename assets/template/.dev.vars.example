@@ -1,0 +1,3 @@
+# Secret names for `pnpm cf:types`. Real values go in .dev.vars, which is gitignored.
+SUPABASE_SECRET_KEY=
+LLM_API_KEY=
