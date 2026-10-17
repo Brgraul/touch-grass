@@ -21,6 +21,8 @@
 
 One command to go from an empty directory to a private GitHub repo, a working TanStack Start app, and a verified Codex Cloud environment. Then go outside.
 
+**Opinionated by design:** local Codex handles setup; your coding agents continue development in Codex Cloud. Built around the OpenAI ecosystem.
+
 ## One command
 
 Invoke the skill in local Codex:
@@ -42,13 +44,23 @@ Zero configuration. No wizard. Authorization only when required.
 
 | Included | What you get |
 | --- | --- |
-| **TanStack Start** | One opinionated stack, ready to build on. |
+| **TanStack Start** | React, TypeScript, and TanStack Query for the application. |
+| **Tailwind CSS v4 + shadcn/ui** | Styling and accessible UI components you own. |
+| **Cloudflare Workers + Workflows** | App hosting and durable background tasks. |
+| **Supabase** | PostgreSQL, authentication, and file storage. |
 | **Tests, CI, and `AGENTS.md`** | A starter built for coding agents. |
 | **Pinned agent skills** | Systematic debugging, verification before completion, and React best practices. |
 | **Repeatable verification** | Rerun `$touch-grass` in the generated repo without provisioning it again. |
 
 Setup is complete only after cloud verification passes. If verification requires the cloud runtime, the agent hands you off to run `$touch-grass` there.
 
-## Prerequisites
+## What you need
 
-Local Codex, Git, an authenticated GitHub CLI (`gh`), and Codex Cloud access with GitHub integration authorized for the new repository.
+- **OpenAI account** with Codex Cloud access and the GitHub integration authorized.
+- **GitHub account** with permission to create private repositories and push code.
+- **Cloudflare and Supabase accounts** to provision and deploy the generated app.
+- **Google Cloud account** to create the OAuth client for "Continue with Google". It's free and needs no custom domain.
+
+Locally: Codex, Git, and an authenticated GitHub CLI (`gh`).
+
+The app's AI features need separate LLM API credentials and usage budget; the provider is configurable.

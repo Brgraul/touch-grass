@@ -1,13 +1,13 @@
 # Template architecture
 
-This document is the complete specification for the application template that Touch Grass installs into a new repository. An agent builds the template from this document alone. Where this document says **must** or **never**, the rule is mandatory and enforced by a check named in [Static enforcement](#static-enforcement) or a proof named in [Testing](#testing). Where it gives a default value, use that value unless a feasibility check in [Open feasibility checks](#open-feasibility-checks) proves it cannot work.
+This document is the complete specification for the application template that Touch Grass installs into a new repository. An agent builds the template from this document alone. This document does not ship in the template. The generated app gets an `ARCHITECTURE.md` rendered from its policy file instead (see [Generated `ARCHITECTURE.md`](#generated-architecturemd)). Where this document says **must** or **never**, the rule is mandatory. [Rule checks](#rule-checks) names the check or proof behind each rule. A rule marked `review` there has no mechanical check yet, and it is the first candidate for one when agents break it. Where it gives a default value, use that value unless a feasibility check in [Open feasibility checks](#open-feasibility-checks) proves it cannot work.
 
 The template is a production-oriented, batteries-included TanStack Start application for AI-agent products. It runs on Cloudflare Free and Supabase Free and is built to be extended by coding agents. It ships two working reference features that agents copy:
 
-- **Agent Turns** is the synchronous reference. It persists and renders typed content blocks.
-- **Agent Tasks** is the asynchronous reference. It runs a durable LLM agent loop with tool calls, cancellation, and crash recovery.
+- **Account** is the plain CRUD reference. It reads and writes one row per user through the standard database access pattern.
+- **Agent Chat** is the agent reference. Every chat message starts a durable run that executes the OpenAI Agents SDK loop with tools on Cloudflare Workflows, survives crashes, and can be stopped. The page shows each step as it is saved.
 
-It also ships working authentication, account management, shared UI, observability, CI, and deployment.
+It also ships working authentication, account management, shared UI, CI, and deployment.
 
 **Design rule.** Organize by feature. Give every responsibility one predictable owner. Enforce boundaries mechanically. Ship only the machinery the reference features use, and list everything else as a [deferred extension](#deferred-extensions) with its trigger.
 
@@ -19,27 +19,25 @@ It also ships working authentication, account management, shared UI, observabili
 4. [Dependency rules](#dependency-rules)
 5. [Shared identities and conventions](#shared-identities-and-conventions)
 6. [Authentication and account](#authentication-and-account)
-7. [Agent Turns](#agent-turns)
-8. [Agent Tasks](#agent-tasks)
-9. [Database](#database)
-10. [Runtime composition](#runtime-composition)
-11. [Client state and UI](#client-state-and-ui)
-12. [Observability](#observability)
-13. [Static enforcement](#static-enforcement)
-14. [Testing](#testing)
-15. [Commands, validation, and CI](#commands-validation-and-ci)
-16. [Environments and deployment](#environments-and-deployment)
-17. [Agent guidance files](#agent-guidance-files)
-18. [Deferred extensions](#deferred-extensions)
-19. [Build order](#build-order)
-20. [Acceptance criteria](#acceptance-criteria)
-21. [Open feasibility checks](#open-feasibility-checks)
+7. [Agent Chat](#agent-chat)
+8. [Database](#database)
+9. [Runtime composition](#runtime-composition)
+10. [Client state and UI](#client-state-and-ui)
+11. [Static enforcement](#static-enforcement)
+12. [Testing](#testing)
+13. [Commands, validation, and CI](#commands-validation-and-ci)
+14. [Environments and deployment](#environments-and-deployment)
+15. [Agent guidance files](#agent-guidance-files)
+16. [Deferred extensions](#deferred-extensions)
+17. [Build order](#build-order)
+18. [Acceptance criteria](#acceptance-criteria)
+19. [Open feasibility checks](#open-feasibility-checks)
 
 ## Scope and stack
 
 ### What the template contains
 
-The template contains application code, database definitions, tests, CI, deployment commands, agent guidance, and bundled agent skills. Repository creation, cloud-environment provisioning, provider account creation, and AI gateway or Langfuse deployment happen outside the template.
+The template contains application code, database definitions, tests, CI, deployment commands, agent guidance, and bundled agent skills. Repository creation, cloud-environment provisioning, and provider account creation happen outside the template.
 
 ### Stack
 
@@ -47,12 +45,13 @@ The template contains application code, database definitions, tests, CI, deploym
 |---|---|
 | Framework | TanStack Start, React, TypeScript (strict) |
 | Client server-state | TanStack Query |
+| Styling | Tailwind CSS v4 through `@tailwindcss/vite` |
+| UI primitives | shadcn/ui, with lucide-react icons |
 | Database, Auth, Storage | Supabase (PostgreSQL, Supabase Auth, Supabase Storage) |
 | Hosting, SSR, server functions | Cloudflare Workers |
 | Durable execution | Cloudflare Workflows |
-| Scheduled recovery | Cloudflare Cron Trigger on the same Worker |
-| Model calls | An OpenAI-compatible AI gateway (LiteLLM or equivalent) |
-| Model tracing | Langfuse, fed by the gateway |
+| Agent loop | OpenAI Agents SDK for TypeScript (`@openai/agents`), over the Chat Completions API |
+| Stuck-run sweep | Cloudflare Cron Trigger on the same Worker |
 | Lint | Oxlint with vendored anti-slop rules. Never install ESLint. |
 | Boundaries | dependency-cruiser plus a client-bundle inspection script |
 | Tests | Vitest, Playwright, SQL tests run through the Supabase CLI |
@@ -61,18 +60,16 @@ The template contains application code, database definitions, tests, CI, deploym
 | Migrations | Supabase CLI with declarative schemas |
 | Worker configuration | Wrangler |
 
-Pin every dependency to an exact version. Pin the Supabase CLI and Wrangler versions in `package.json` and run them through `pnpm exec`.
+Pin every dependency to an exact version. Pin the Supabase CLI, Wrangler, and shadcn CLI versions in `package.json` and run them through `pnpm exec`.
 
 ### External requirements
 
 These are prerequisites the template consumes and never creates:
 
-- An LLM provider account reached through the AI gateway.
-- An AI gateway that enforces spend, token, and provider rate limits **per environment key and per end user**, and forwards traces to Langfuse. A gateway without per-user budgets does not meet this requirement, because one user could exhaust every user's budget.
-- A Langfuse project connected to the gateway.
-- Production SMTP for Supabase Auth email.
+- An LLM provider account with an OpenAI-compatible chat-completions API.
+- A Google Cloud OAuth client for sign-in (see [Google OAuth client](#google-oauth-client)). It needs no custom domain.
 
-The template keeps no money or token ledger of its own. The gateway owns spend.
+The template keeps no money or token ledger. The limits in [Limits summary](#limits-summary) bound how many model calls and tokens one run can use.
 
 ## Repository layout
 
@@ -83,106 +80,93 @@ Create only the files a feature needs. Never create placeholder files.
 .github/workflows/
 	ci.yml                               Full check on every pull request
 	deploy.yml                           Migrate, deploy, verify on main
-architecture/
-	policy.ts                            Single source of ownership and verification rules
 src/
 	routes/
 		__root.tsx                       Document shell, QueryClient provider
-		login.tsx
-		signup.tsx
-		reset-password.tsx
-		update-password.tsx              Target of the recovery email link
+		login.tsx                        "Continue with Google" button
+		auth.callback.ts                 Server route; exchanges the OAuth code for a session
 		_authenticated.tsx               Protected layout; redirects to /login
 		_authenticated/
-			index.tsx                    Redirects to /tasks
+			index.tsx                    Redirects to /chat
 			account.tsx
-			turns.tsx
-			tasks.index.tsx
-			tasks.$taskId.tsx
+			chat.index.tsx
+			chat.$conversationId.tsx
 	features/
 		auth/
 			ui/
-			auth.commands.ts
+			auth.queries.ts
 			auth.functions.ts
 			auth.schema.ts
 			auth.e2e.spec.ts
 		account/
 			ui/
 			account.queries.ts
-			account.commands.ts
 			account.functions.ts
 			account.schema.ts
 			account.repo.server.ts
 			account.e2e.spec.ts
-		agent-turns/
+		agent-chat/
 			ui/
-				turn-page.tsx
-				turn-composer.tsx
-				turn-view.tsx
-				blocks/
-					text-block.tsx
-					tool-call-block.tsx
-					tool-result-block.tsx
-					structured-output-block.tsx
-					unsupported-block.tsx
-			agent-turns.queries.ts
-			agent-turns.commands.ts
-			agent-turns.functions.ts
-			agent-turns.schema.ts
-			agent-turns.api.server.ts
-			agent-turns.repo.server.ts
-			agent-turns.e2e.spec.ts
-		agent-tasks/
-			ui/
-				task-form.tsx
-				task-list.tsx
-				task-detail.tsx
-			agent-tasks.queries.ts
-			agent-tasks.commands.ts
-			agent-tasks.functions.ts
-			agent-tasks.schema.ts
-			agent-tasks.api.server.ts
-			agent-tasks.model.ts
-			agent-tasks.model.test.ts
-			agent-tasks.tools.ts
-			agent-tasks.runtime.server.ts
-			agent-tasks.repo.server.ts
-			agent-tasks.workflow.server.ts
-			agent-tasks.integration.test.ts
-			agent-tasks.e2e.spec.ts
+				chat-page.tsx
+				conversation-list.tsx
+				composer.tsx
+				exchange-view.tsx
+				turn-view.tsx            Exhaustive block switch
+			agent-chat.queries.ts
+			agent-chat.functions.ts
+			agent-chat.schema.ts
+			agent-chat.service.server.ts
+			agent-chat.agent.ts
+			agent-chat.tools.ts
+			agent-chat.model.ts
+			agent-chat.model.test.ts
+			agent-chat.repo.server.ts
+			agent-chat.workflow.server.ts
+			agent-chat.integration.test.ts
+			agent-chat.e2e.spec.ts
 	components/
-		ui/                              Design-system primitives
+		ui/                              shadcn/ui components and `cn.ts`
 		patterns/                        Domain-agnostic compositions
 	layouts/
 		app-shell.tsx                    Responsive shell, navigation, account menu
 	domain/                              Absent until a shared business capability exists
 	platform/
 		ids.ts
+		mutations.ts                     Client-safe; request keys, transport retries, invalidation
 		env.server.ts
 		supabase.server.ts
 		auth.server.ts
 		model.server.ts
+		model.server.test.ts
 		logger.server.ts
 		database.types.ts                Generated; never edited by hand
+	styles/
+		app.css                          The only stylesheet: Tailwind import and theme tokens
 	server.ts                            Sole runtime composition root
 supabase/
 	config.toml
 	schemas/
 		account/
-		agent-turns/
-		agent-tasks/
+		agent-chat/
 	migrations/                          One globally ordered ledger
 	tests/                               Database-wide security tests
 tests/
-	fixtures/                            Shared test utilities, gateway double
-	architecture/                        Positive and negative boundary fixtures
+	fixtures/                            Shared test utilities, provider double
+		test-users.ts                    The only password sign-in path
 tools/
+	boundary-enforcement/                The policy, every repo-owned check, and the fixtures that prove them
+		policy.ts                        Single source of roles, imports, packages, and rule checks
+		lint-rules/                      Oxlint JS plugin rules derived from the policy
+		check-client-bundle.ts
+		check-repo.ts                    Packages, pins, forbidden files, migrations, generated files
+		generate-architecture.ts         Renders ARCHITECTURE.md from the policy
+		fixtures/                        Positive and negative fixtures for every check
+		boundary-enforcement.test.ts     Runs every checker against the fixtures
 	oxlint/anti-slop/                    Vendored lint rules
-	check-client-bundle.ts
-	verify.ts                            Implements pnpm verify and verify:deployed
+	verify-deployed.ts                   Implements pnpm verify:deployed
 	hooks/                               Optional agent hooks
-environments/                            Nonsecret per-environment manifests
-ARCHITECTURE.md                          This specification
+ARCHITECTURE.md                          Generated from policy.ts; never edited by hand
+components.json                          shadcn/ui configuration
 AGENTS.md
 oxlint.config.ts
 dependency-cruiser.config.cjs
@@ -198,7 +182,8 @@ Rules:
 - Feature implementation and feature tests, including E2E specs, stay in the owning feature directory.
 - Server-only modules end in `.server.ts`.
 - `src/domain/<capability>/` exists only for a business capability that two or more features share and that belongs to neither. A table that two features read does not make a domain.
-- Shared test infrastructure and architecture fixtures live under `tests/`.
+- Shared test infrastructure lives under `tests/`.
+- Enforcement lives in one place, `tools/boundary-enforcement/`: the policy, every repo-owned check that reads it, and the fixtures that prove them. Root config files (`oxlint.config.ts`, `dependency-cruiser.config.cjs`) stay at the root because their tools expect them there, and import the policy from `tools/boundary-enforcement/policy.ts`.
 - Database definitions live under `supabase/schemas/<owner>/`, where `<owner>` is the feature or domain directory name.
 
 ## File roles and ownership
@@ -207,50 +192,64 @@ Every kind of logic has one owner. The file suffix names the role.
 
 | File | Owns | Never owns |
 |---|---|---|
-| `routes/*.tsx` | URLs, params, loaders, redirects, composing feature UI | Business logic, persistence |
+| `routes/*.tsx` | URLs, params, loaders, redirects, composing feature UI | Data access except through `*.queries.ts`, domain decisions, persistence |
 | `ui/*.tsx` | Rendering, interaction, ephemeral state | Fetching, persistence, transport |
-| `*.queries.ts` | Query keys, query options, polling | Mutations, domain rules |
-| `*.commands.ts` | Mutations, optimistic updates, cache invalidation | Authoritative behavior |
-| `*.functions.ts` | TanStack server functions: parse input, resolve the actor, authorize, delegate | Domain logic beyond authorization |
-| `*.schema.ts` | Client-safe runtime schemas and the types inferred from them | Runtime implementations, SQL |
-| `*.api.server.ts` | The feature's server-side use cases; the only server module other features may import | UI, transport details |
-| `*.model.ts` | Pure domain decisions, constants, policies, and outcome classification | I/O of any kind |
+| `*.queries.ts` | Query keys, query options, polling, and mutations with their request keys and cache invalidation | Domain decisions |
+| `*.functions.ts` | TanStack server functions: parse input, resolve the actor, delegate | Ownership checks, domain decisions |
+| `*.schema.ts` | The feature's client-safe contracts: runtime schemas and the types inferred from them | Runtime implementations, SQL |
+| `*.service.server.ts` | The feature's server-side use cases and the background processes that serve them | UI, transport details, Cloudflare step objects |
+| `*.model.ts` | Pure domain decisions over loaded data, constants and limits, feature-private types, and outcome classification | I/O of any kind, rules that must hold atomically with a write |
 | `*.tools.ts` | Pure tools an agent may call | I/O of any kind |
-| `*.runtime.server.ts` | Execution runner and reconciler | Cloudflare step objects |
-| `*.repo.server.ts` | Calls to the feature's database routines and row parsing | Business decisions |
-| `*.workflow.server.ts` | The Cloudflare Workflow class: steps, sleeps, payload parsing | Domain decisions |
-| `supabase/schemas/<owner>/` | Schemas, roles, tables, constraints, indexes, RLS, routines, grants | Application behavior outside SQL routines |
+| `*.repo.server.ts` | Calls to the feature's database routines, and the server-only row schemas that parse their results | Domain decisions |
+| `*.agent.ts` | The OpenAI Agents SDK `Agent` definition: instructions, tools, and model settings | I/O of any kind |
+| `*.workflow.server.ts` | The Cloudflare Workflow class and the model wrapper that turns each model call into a step: steps, retries, and the payload schema | Domain decisions |
+| `supabase/schemas/<owner>/` | Schemas, roles, tables, constraints, indexes, RLS, grants, and routines, including ownership checks and every rule that must hold atomically with a write | Constants and limits, domain decisions that need no lock or transaction |
 | `platform/` | Generic mechanisms: env, Supabase clients, auth, model adapter, logging | Feature knowledge |
 | `src/server.ts` | Wiring runtime dependencies and exporting entrypoints | Any rule |
 
-A feature with simple CRUD needs no `*.api.server.ts`. Its server functions call its repository directly. Create `*.api.server.ts` when another feature needs the behavior, or when use cases hold logic beyond authorization. Never add a forwarding service, barrel file, or DI container.
+Domain rules split between `*.model.ts` and SQL routines by one test. A rule that must hold atomically with a write lives in a routine: admission, request-key idempotency, capacity, terminal transitions, step commits, and ownership. Every other domain decision lives in `*.model.ts`. Routines receive limits as parameters from `*.model.ts` constants and never hardcode them.
+
+Ownership is checked only in SQL. A server function calls `requireActor` and passes the actor's user ID down. It never checks whether the actor owns a row. RLS enforces ownership on reads, and each mutation routine checks it on writes (see [Access pattern](#access-pattern)).
+
+A feature with simple CRUD needs no `*.service.server.ts`. Its server functions call its repository directly. Create a service only when a use case does more than call one repository routine. Never add a forwarding service, barrel file, or DI container.
 
 ## Dependency rules
 
-`architecture/policy.ts` encodes this table, and dependency-cruiser enforces it.
+`tools/boundary-enforcement/policy.ts` encodes this table, and dependency-cruiser enforces it. The table is an allowlist. A module under `src/` may import only what its row lists, and every other edge fails the check. Every module may also import `platform/ids.ts` and `zod`.
 
-| Source | May import | Must not import |
-|---|---|---|
-| Routes | Feature `ui/`, `*.queries.ts`, `*.commands.ts`, `*.schema.ts`, `*.functions.ts`, layouts, components | Repositories, `*.api.server.ts`, runtime, workflow |
-| `ui/` | Components, own feature's queries, commands, and schema | Any `.server.ts`, any `*.functions.ts` |
-| Queries and commands | Own feature's `*.functions.ts` and `*.schema.ts`, `@tanstack/react-query` | Any `.server.ts` |
-| `*.functions.ts` | Own schema, own `*.api.server.ts` or repository, `platform/auth.server.ts` | UI, queries, commands |
-| `*.api.server.ts` | Own schema, model, tools, repository; other features' `*.schema.ts` and `*.api.server.ts`; `platform/` | UI, routes, workflow |
-| `*.model.ts`, `*.tools.ts` | Own schema, other pure modules, `platform/ids.ts` | Any `.server.ts`, runtime globals |
-| `*.runtime.server.ts` | Own model, tools, repository, schema; `platform/` | UI, routes, `*.workflow.server.ts` |
-| `*.repo.server.ts` | Own schema, `platform/supabase.server.ts`, `platform/database.types.ts`, `platform/ids.ts` | UI, model, runtime |
-| `*.workflow.server.ts` | Own runtime and schema, `cloudflare:workers` | UI, routes, repository |
-| `*.schema.ts` | `zod`, `platform/ids.ts`, other features' `*.schema.ts` | React, Supabase, Cloudflare APIs, any `.server.ts` |
-| `platform/` | Third-party libraries, other `platform/` modules | Anything under `src/features/` or `src/domain/` |
-| `src/server.ts` | Everything it wires | Nothing is forbidden; it holds no rules |
+The policy names two package lists:
+
+- **Browser packages** are React, TanStack Router, Start, and Query, `lucide-react`, `clsx`, `tailwind-merge`, and the dependencies of installed shadcn/ui components.
+- **Server packages** are every other dependency, including `@supabase/*`, `@openai/agents`, and `openai`.
+
+| Source | May import only |
+|---|---|
+| Routes (`routes/*.tsx`) | Any feature's `ui/`, `*.queries.ts`, and `*.schema.ts`; layouts; components; browser packages |
+| Server routes (route files that export only server `handlers`, such as `auth.callback.ts`) | `platform/auth.server.ts`; browser packages |
+| `ui/` | Components; own feature's `*.queries.ts` and `*.schema.ts`; browser packages |
+| `components/` | Other components; browser packages |
+| `layouts/` | Components; any feature's `ui/` and `*.queries.ts`; browser packages |
+| `*.queries.ts` | Own feature's `*.functions.ts` and `*.schema.ts`; `platform/mutations.ts`; `@tanstack/react-query` |
+| `*.functions.ts` | Own schema; own service or repository; `platform/auth.server.ts`; `@tanstack/react-start` |
+| `*.service.server.ts` | Own schema, model, agent, and repository; other features' `*.schema.ts`; `src/domain/`; `platform/`; `@openai/agents` |
+| `*.model.ts`, `*.tools.ts`, `*.agent.ts` | Own schema; one another within the same feature; other features' `*.schema.ts`; pure modules in `src/domain/`; `@openai/agents` definitions and types |
+| `src/domain/<capability>/` | Modules in the same domain; `@openai/agents` definitions and types |
+| `*.repo.server.ts` | Own schema; `platform/supabase.server.ts`; `platform/database.types.ts` |
+| `*.workflow.server.ts` | Own service, model, agent, and schema; `@openai/agents`; `cloudflare:workers` |
+| `*.schema.ts` | Other features' `*.schema.ts` |
+| Client-safe `platform/` modules (`ids.ts`, `mutations.ts`) | Each other; browser packages |
+| Other `platform/` modules | Any `platform/` module; server and browser packages |
+| `src/server.ts` | Everything it wires. It holds no rules. |
 
 Additional rules:
 
-- Feature dependencies point one way. `agent-tasks` may import `agent-turns` public modules. `agent-turns` never imports `agent-tasks`. Cycles between features fail the check.
-- A feature never imports another feature's `ui/`, model, tools, runtime, repository, or workflow.
-- Only `platform/model.server.ts` sends model calls. No provider SDK appears anywhere else.
-- `platform/model.server.ts` knows nothing about tasks. It takes platform-level request types and returns a raw `GatewayResult`. The task feature builds the request and classifies the result.
-- Browser code may import `*.functions.ts`. TanStack Start compiles each server function into a client RPC stub. Importing `*.functions.ts` never makes the rest of that module safe for the browser, and the client-bundle inspection decides what actually ships.
+- Feature dependencies point one way. Cycles between features fail the check.
+- A feature may import any module of a domain. A domain never imports a feature.
+- A feature imports only another feature's `*.schema.ts`. When a page needs data from two features, its route composes both features' UI and queries.
+- Route loaders read data with `queryClient.ensureQueryData` and the query options from `*.queries.ts`. A route never calls a server function directly, so every read goes through one cache.
+- Only `platform/model.server.ts` builds a model provider or an `openai` client. The `openai` package appears nowhere else. Features import `@openai/agents` only for `Agent`, `Runner`, `tool`, the `Model` interface, and SDK types.
+- `platform/model.server.ts` knows nothing about chat. Agent Chat wraps its model calls in Workflow steps and classifies their errors.
+- `*.queries.ts` is the only client-reachable module that imports `*.functions.ts`. TanStack Start compiles each server function into a client RPC stub. Importing `*.functions.ts` never makes the rest of that module safe for the browser, and the client-bundle inspection decides what actually ships.
 
 ## Shared identities and conventions
 
@@ -260,8 +259,9 @@ Additional rules:
 export type Brand<T, Name extends string> = T & { readonly __brand: Name };
 export type UserId = Brand<string, 'UserId'>;
 export type EnvironmentId = Brand<string, 'EnvironmentId'>;
+export type ConversationId = Brand<string, 'ConversationId'>;
+export type RunId = Brand<string, 'RunId'>;
 export type TurnId = Brand<string, 'TurnId'>;
-export type TaskId = Brand<string, 'TaskId'>;
 export type RequestKey = Brand<string, 'RequestKey'>;
 export type Instant = Brand<string, 'IsoInstant'>;
 export type PageCursor = Brand<string, 'PageCursor'>;
@@ -273,27 +273,72 @@ export type NotFound = { kind: 'not_found' };
 
 Conventions every feature follows:
 
-- **Parse once at the boundary.** Every value from outside the process (request payload, environment, Workflow payload, database row, gateway response, model tool arguments) is parsed by a zod schema at its owning adapter. Code inside the boundary trusts the types and never revalidates.
+- **Parse once at the boundary.** Every value from outside the process (request payload, environment, Workflow payload, database row, provider response, model tool arguments) is parsed by a zod schema at its owning adapter. Code inside the boundary trusts the types and never revalidates.
 - **Brands come from parsers.** Never cast a string to a brand in caller code.
 - **Owner IDs come from the verified session.** Never read an owner ID from a request body, a URL, or user-editable metadata.
-- **Request keys.** The browser generates one `RequestKey` (a UUID) per deliberate create action and reuses it for transport retries of that action. A user who submits again gets a new key.
+- **Request keys.** `platform/mutations.ts` generates one `RequestKey` (a UUID) per deliberate create action and reuses it for transport retries of that action. A user who submits again gets a new key. Features never create request keys.
 - **Receipts.** Every create returns a discriminated receipt: the stored result, `key_conflict` when the same key arrives with different input, or a refusal.
 - **Pagination.** Lists use keyset pagination. A `PageCursor` is an opaque base64url encoding of the last item's sort key. The page size is 25 and the maximum is 50.
-- **Times.** PostgreSQL time decides every deadline, lease, and window. Worker clocks only measure relative durations.
+- **Times.** PostgreSQL time decides every deadline and window. Worker clocks only measure relative durations.
 - **Errors.** Server functions return safe, typed errors. A safe error carries a stable code and a correlation ID, never a stack trace, SQL text, or provider body.
 
 ## Authentication and account
 
 ### Authentication
 
-`features/auth/` owns the sign-up, login, logout, password recovery, and update-password flows. `platform/auth.server.ts` owns the infrastructure.
+Google is the only sign-in method. The template sends no email. `features/auth/` owns sign-in, the OAuth callback, and logout. `platform/auth.server.ts` owns the infrastructure.
 
-- Supabase Auth with email and password. Sessions persist in HTTP-only cookies through `@supabase/ssr`.
+- Supabase Auth with the Google provider. Sessions persist in HTTP-only cookies through `@supabase/ssr`, which uses the PKCE flow.
+- `/login` shows one "Continue with Google" button. The button calls the `startGoogleSignIn` server function through a mutation in `auth.queries.ts`. The server function calls `auth.signInWithOAuth({ provider: 'google', options: { redirectTo: APP_URL + '/auth/callback', skipBrowserRedirect: true } })` through the request client and returns the provider URL. The page navigates to that URL.
+- `/auth/callback` is a server route. It calls `auth.exchangeCodeForSession(code)` through the request client and redirects to `/`. A missing code or a failed exchange redirects to `/login?error=sign_in_failed`, where the page shows one generic failure message.
+- Sign-in requests only the `openid`, `email`, and `profile` scopes. Any other scope requires Google app verification.
+- The first sign-in creates the Supabase user. There is no separate sign-up flow.
 - `platform/auth.server.ts` exports `createRequestClient(request)`, which builds a Supabase client bound to the request's cookies, and `requireActor(request)`, which verifies the session with `auth.getUser()` and returns an `Actor` or throws an unauthenticated error.
-- The `_authenticated` layout route redirects unauthenticated visitors to `/login`. Route protection is navigation only. Every private server function calls `requireActor` itself.
+- The `_authenticated` layout route reads the session through the session query in `auth.queries.ts` and redirects unauthenticated visitors to `/login`. Route protection is navigation only. Every private server function calls `requireActor` itself.
 - Logout signs out through Supabase, clears the cookies, and calls `queryClient.clear()`.
-- Password recovery sends the Supabase recovery email. Its link targets `/update-password`.
-- SMTP settings come from `supabase/config.toml` locally and from the Supabase project settings in hosted environments.
+
+### Auth configuration
+
+`supabase/config.toml` holds every Auth setting. Never change Auth settings in the Supabase dashboard.
+
+```toml
+[auth]
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/auth/callback"]
+enable_signup = true
+
+[auth.email]
+enable_signup = false
+
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+skip_nonce_check = false
+```
+
+- Each hosted environment has a `[remotes.<environment>]` block with its `project_id`. Its `[remotes.<environment>.auth]` block sets `site_url` to the environment's `APP_URL` and `additional_redirect_urls` to `["<APP_URL>/auth/callback"]`.
+- `deploy.yml` applies the file with `supabase config push` (see [Deployment](#deployment)).
+- `[auth.email] enable_signup = false` blocks email sign-up. Email and password sign-in works only for users created through the admin API with the secret key, which only [test sign-in](#test-sign-in) does.
+- Locally, the Supabase CLI reads the two Google variables from `supabase/.env`, which is gitignored. CI sets them to placeholder values. No CI test contacts Google.
+
+### Google OAuth client
+
+The developer creates one Google Cloud OAuth client of type "Web application". It serves every environment.
+
+- The consent screen audience is External, and its publishing status is "In production". In "Testing", only listed test users can sign in.
+- The authorized redirect URIs are `https://<project-ref>.supabase.co/auth/v1/callback` for each hosted Supabase project and `http://127.0.0.1:54321/auth/v1/callback` for the local stack.
+- The client ID and secret are the GitHub environment secrets `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` and `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET`, and the same names in `supabase/.env`.
+- The consent screen names `<project-ref>.supabase.co`, not the app. Changing that is the branded consent [deferred extension](#deferred-extensions).
+
+### Test sign-in
+
+Automated tests never use Google. `tests/fixtures/test-users.ts` exports `createTestUser()`, `signInAs(page, user)`, and `deleteTestUser(user)`.
+
+- `createTestUser` creates a confirmed user through `auth.admin.createUser` with a unique `@example.test` email and a random password.
+- `signInAs` signs in with `auth.signInWithPassword` through an `@supabase/ssr` client and writes the resulting session cookies into the Playwright browser context.
+- E2E journeys, the two-user denial tests, and `verify:deployed` use these helpers. `verify:deployed` deletes its user when it finishes.
+- Only `tests/fixtures/test-users.ts` calls `signInWithPassword` or `auth.admin.createUser`.
 
 ### Account
 
@@ -301,22 +346,42 @@ Conventions every feature follows:
 
 - `getProfile` returns the stored profile or a default with an empty display name.
 - `updateProfile` upserts the profile for the actor.
-- The account page shows the email (read from the session) and an editable display name.
+- The account page shows the Google account email (read from the session) and an editable display name.
 
 Account is simple CRUD. Its server functions call `account.repo.server.ts` directly, and it uses the same database pattern as every feature (see [Database](#database)).
 
-## Agent Turns
+## Agent Chat
 
-Agent Turns is the synchronous reference and the transcript capability. It stores and renders turns. It makes no model or tool call. A feature that needs a model response submits an agent task and renders the agent turn that task writes, so every model call goes through one path with limits.
+A user sends a message in a conversation. Every message starts a durable run on Cloudflare Workflows. The run executes the OpenAI Agents SDK loop with tools and commits one agent turn per step. A five-second answer and a five-hour answer take the same path. The browser only views runs. Closing the tab never stops a run, and reopening the conversation shows where it stands.
 
-### Turn contracts
+Three parts share the work, and each owns one thing:
 
-`agent-turns.schema.ts` is public. Other features may import it.
+| Part | Owns |
+|---|---|
+| PostgreSQL | The record: conversations, runs, agent turns, admission, and terminal outcomes |
+| OpenAI Agents SDK (`@openai/agents`) | The agent loop: building the conversation, calling the model, running tools, and deciding when the answer is final |
+| `AgentChatWorkflow` (Cloudflare Workflows) | Durability: each model call and each commit is a Workflow step, so a crashed run resumes from its last saved step |
+
+Progress reaches the browser one step at a time. Each committed step is an agent turn in PostgreSQL, and the page polls while a run is active. The template does not stream tokens. The live updates extension in [Deferred extensions](#deferred-extensions) adds them when a product needs them.
+
+The template has one durability mechanism. It never adds attempts, leases, or fencing tokens on top of Workflows. A one-minute sweep covers the two gaps Workflows cannot see: a run that never started, and a run that died without failing.
+
+### Vocabulary
+
+- A **conversation** is one chat thread. It belongs to one user.
+- A **message** is the text a user sends. Each message starts exactly one run and is stored on that run.
+- A **run** is the durable execution that answers one message. Its Workflow instance ID is the run ID, so a run never has two instances.
+- A **step** is one model response plus the pure tool calls it requested, committed as one agent turn.
+- A **model call** is one request to the LLM provider. A step makes one model call and up to `MODEL_CALL_RETRIES` retries.
+
+### Chat contracts
+
+`agent-chat.schema.ts` holds the feature's public contracts.
 
 ```ts
 export type ToolCallId = Brand<string, 'ToolCallId'>;
 
-// The write type. Callers can only create these kinds.
+// Agent turns hold these kinds.
 export type ContentBlock =
 	| { kind: 'text'; text: string }
 	| { kind: 'tool_call'; callId: ToolCallId; tool: string; input: JsonValue | { unparsed: string } }
@@ -328,425 +393,382 @@ export type StoredBlock =
 	| ContentBlock
 	| { kind: 'unsupported'; storedKind: string; storedVersion: number };
 
-export type Turn = {
-	id: TurnId;
-	owner: UserId;
-	role: 'user' | 'agent';
-	blocks: readonly StoredBlock[];
-	taskId?: TaskId;
-	createdAt: Instant;
-};
+export type RunFailure =
+	| { kind: 'execution'; code: 'internal' | 'unclassified_provider_response' }
+	| { kind: 'limit'; limit: 'steps' | 'tool_calls' | 'model_retries' | 'context' | 'duration' }
+	| { kind: 'provider_refused'; reason: 'quota' | 'policy' | 'configuration' }
+	| { kind: 'model_output_invalid'; reason: 'truncated' | 'oversized' };
 
-export type TurnReceipt =
-	| { kind: 'stored'; turn: Turn }
-	| { kind: 'key_conflict' }
-	| { kind: 'rate_limited'; retryAfter: Instant };
+export type Run = { id: RunId; conversationId: ConversationId; message: string; version: number; createdAt: Instant } & (
+	| { state: 'queued' }
+	| { state: 'running'; committedSteps: number }
+	| { state: 'completed'; finalTurn: TurnId; endedAt: Instant }
+	| { state: 'failed'; failure: RunFailure; endedAt: Instant }
+	| { state: 'canceled'; endedAt: Instant }
+);
+
+export type AgentTurn = { id: TurnId; runId: RunId; step: number; blocks: readonly StoredBlock[]; createdAt: Instant };
+export type Exchange = { run: Run; turns: readonly AgentTurn[] };
+export type Conversation = { id: ConversationId; title: string; updatedAt: Instant };
+
+export type SendRefusal = 'rate_limited' | 'capacity' | 'busy';
+export type SendReceipt =
+	| { kind: 'accepted'; run: Run }
+	| { kind: 'refused'; reason: SendRefusal }
+	| { kind: 'key_conflict' };
+
+// Parses OpenAI Agents SDK run items (messages, function calls, function call results) into blocks.
+export const blocksFromAgentItems: z.ZodType<ContentBlock[], z.ZodTypeDef, unknown>;
 
 export const BLOCK_SCHEMA_VERSION = 1;
 ```
 
-`agent-turns.api.server.ts` is public to other server modules.
+A message is plain text of at most 32 KB. In an agent turn, every `tool_result` references a `tool_call` with the same `callId` in the same turn, and `unsupported` is never written. A text block holds at most 32 KB. A JSON value holds at most 16 KB serialized. A turn holds at most 64 blocks and 256 KB in total.
+
+`agent-chat.service.server.ts` implements the use cases, the runner that the Workflow steps call, and the sweep.
 
 ```ts
-export interface Turns {
-	create(actor: Actor, input: { requestKey: RequestKey; blocks: readonly ContentBlock[] }): Promise<TurnReceipt>;
-	list(actor: Actor, query: { taskId?: TaskId; after?: PageCursor }): Promise<Page<Turn>>;
+export interface Chat {
+	send(actor: Actor, input: { requestKey: RequestKey; conversationId?: ConversationId; text: string }): Promise<SendReceipt | NotFound>;
+	listConversations(actor: Actor, page: { after?: PageCursor }): Promise<Page<Conversation>>;
+	readConversation(actor: Actor, id: ConversationId, page: { after?: PageCursor }): Promise<{ conversation: Conversation; exchanges: Page<Exchange> } | NotFound>;
+	cancel(actor: Actor, runId: RunId): Promise<Run | NotFound>;
 }
-```
 
-Write rules, enforced by the write schema:
-
-- Every `tool_result` references a `tool_call` with the same `callId` in the same turn.
-- `unsupported` is not a write kind.
-- A text block holds at most 32 KB. A JSON value holds at most 16 KB serialized. A turn holds at most 64 blocks and 256 KB in total.
-
-### Turn behavior
-
-- `create` checks the actor's turn-creation window (60 creates per user per hour). A rate-limited create writes nothing and returns `rate_limited`.
-- `create` then inserts with `on conflict do nothing` on `(owner_id, request_key)` and compares the canonical input hash with the stored row. The same input returns `stored`. Different input returns `key_conflict`. Concurrent identical calls take the same path.
-- `list` without `taskId` returns the actor's user turns, newest first, sorted by `(created_at, id)`. `list` with `taskId` returns that task's agent turns in step order.
-- The repository parses stored blocks by `block_schema_version` and kind. An unknown kind or version becomes `unsupported`. Removing or reshaping a block kind requires a SQL data migration in the same change.
-- Only the Agent Tasks `commit_step` database routine writes agent turns. No TypeScript function writes them.
-
-### Turn UI
-
-- The turns page lists the actor's user turns and has a composer that creates a text turn.
-- `turn-view.tsx` renders a turn by switching exhaustively over `block.kind`, one component per kind. The TypeScript `never` check fails the build when a kind lacks a component.
-- The task detail page reuses `turn-view.tsx` for its transcript.
-
-## Agent Tasks
-
-A user submits instructions. An agent runs asynchronously, calls pure tools, and writes one agent turn per step. The user watches progress, can cancel, and sees the final turn.
-
-### Task contracts
-
-`agent-tasks.schema.ts` is public.
-
-```ts
-export type TaskFailure =
-	| { kind: 'execution'; code: SafeFailureCode }
-	| { kind: 'limit'; limit: 'attempts' | 'steps' | 'tool_calls' | 'sends' | 'context' | 'duration' }
-	| { kind: 'gateway_refused'; reason: 'budget' | 'policy' | 'configuration' }
-	| { kind: 'model_output_invalid'; reason: 'truncated' | 'oversized' };
-
-export type PublicTask = { id: TaskId; instructions: string; retryOf?: TaskId; version: number; createdAt: Instant } & (
-	| { state: 'queued' }
-	| { state: 'running'; committedSteps: number }
-	| { state: 'completed'; finalTurn: TurnId; endedAt: Instant }
-	| { state: 'failed'; failure: TaskFailure; endedAt: Instant }
-	| { state: 'canceled'; endedAt: Instant }
-);
-
-export type PublicActivity = {
-	at: Instant;
-	kind: 'attempt_started' | 'send_started' | 'send_retryable' | 'send_lost' | 'step_committed' | 'attempt_replaced';
-	step?: number;
+// Built in src/server.ts from the AGENT_CHAT_WORKFLOW binding and injected into the service.
+export type WorkflowRuns = {
+	start(runId: RunId): Promise<void>; // Creates the instance with ID runId. An existing instance counts as success.
+	terminate(runId: RunId): Promise<void>;
 };
-
-export type TaskView = { task: PublicTask; transcript: Page<Turn>; activity: readonly PublicActivity[] };
-
-export type SubmissionRefusal = 'capacity' | 'rate_limited' | 'source_not_retryable';
-
-export type SubmissionReceipt =
-	| { kind: 'accepted'; task: PublicTask }
-	| { kind: 'refused'; reason: SubmissionRefusal }
-	| { kind: 'key_conflict' };
 ```
 
-`instructions` is plain text of at most 8 KB. `SafeFailureCode` is a closed string union declared in the same file: `'internal'` and `'unclassified_gateway_response'`.
+`agent-chat.functions.ts` exposes `sendMessage`, `listConversations`, `readConversation`, and `stopRun`. Each resolves the actor and calls the service.
 
-`agent-tasks.api.server.ts` implements the five use cases.
+- `send` without a `conversationId` starts a new conversation. Its title is the first 80 characters of the message.
+- `listConversations` sorts by `(updated_at, id)`, newest first.
+- `readConversation` returns the conversation's exchanges, newest first. Each exchange holds a run and its committed agent turns in step order.
+- `cancel` returns the durable winner, including an already completed or failed run.
+- A failed or canceled run has no retry. The page offers to send the same text again as a new message.
+
+### Sending a message
+
+`send` runs the `submit_message` routine in one transaction:
+
+1. Take the environment's advisory lock. It serializes admission for the environment.
+2. Look up the run for `(owner_id, request_key)`. If one exists, compare the canonical input hash and return the stored run or `key_conflict`. The canonical input is the conversation ID, or none, and the message text.
+3. If a conversation ID is given, return `not_found` unless the actor owns it.
+4. Count the user's runs created within the last hour. At `MESSAGES_PER_USER_PER_HOUR`, return `refused: rate_limited`.
+5. If the conversation has a `queued` or `running` run, return `refused: busy`. One run per conversation runs at a time.
+6. Count the user's and the environment's `queued` and `running` runs. At either limit, return `refused: capacity`.
+7. Create the conversation if none was given. Create the run with its policy snapshot and deadline, and set the conversation's `updated_at`.
+
+A refusal writes no row, so the same request key is evaluated again on a later attempt. `submit_message` receives every limit as a parameter from the `agent-chat.model.ts` constants. Active-run counts come from run state, so no slot table exists and no code releases a slot.
+
+After the transaction commits, the service calls `workflowRuns.start(runId)` for a newly created run and ignores a failure. The sweep starts the run instead.
+
+### The sweep
+
+The Worker's scheduled handler runs `sweepRuns` every minute. It reads at most 25 runs per rule with the `sweep_candidates` routine, oldest first, and applies two rules:
+
+| Runs | Action |
+|---|---|
+| `queued`, created before PostgreSQL `now - DISPATCH_CHECK_DELAY` | `workflowRuns.start(runId)` |
+| Nonterminal, with PostgreSQL `now` at or past `deadline + END_CHECK_GRACE` | `workflowRuns.terminate(runId)`, best effort, then `fail_run` with `limit: 'duration'` |
+
+Both rules are idempotent. Starting an existing instance changes nothing, and `fail_run` changes nothing on a terminal run. The sweep holds no state between passes.
+
+### Stopping a run
+
+The page's stop button calls `cancel`, which calls `cancel_run`, then `workflowRuns.terminate(runId)`.
+
+- `cancel_run` locks the run row. If the run is nonterminal, it becomes `canceled`. The routine returns the durable winner.
+- Termination is best effort. If it fails, the run's next commit finds a terminal run and the loop ends. No turn follows a cancellation.
+- Committed steps stay in the conversation. The model call in flight is discarded, and that call may still be charged.
+
+### Lifecycle
+
+| Current state | Allowed next states |
+|---|---|
+| `queued` | `running`, `failed`, `canceled` |
+| `running` | `completed`, `failed`, `canceled` |
+| `completed`, `failed`, `canceled` | None |
+
+- A run becomes `running` in `start_run`, the first step of its Workflow instance.
+- Cancellation, completion, and failure lock the same run row. The first committed terminal transition wins. Every later transition returns that winner.
+- A completed run's `finalTurn` is written by its final commit in the same transaction that completes the run. A final answer is never visible on a running run.
+- `version` increases on every change to the run row. Clients use it for cache reconciliation.
+
+### The agent definition
+
+`agent-chat.agent.ts` exports `CHAT_AGENT`, an OpenAI Agents SDK `Agent`. It has no I/O.
 
 ```ts
-export interface Tasks {
-	submit(actor: Actor, input: { requestKey: RequestKey; instructions: string }): Promise<SubmissionReceipt>;
-	list(actor: Actor, page: { after?: PageCursor }): Promise<Page<PublicTask>>;
-	read(actor: Actor, id: TaskId, page: { transcript?: PageCursor }): Promise<TaskView | NotFound>;
-	cancel(actor: Actor, id: TaskId): Promise<TaskView | NotFound>;
-	retry(actor: Actor, id: TaskId, requestKey: RequestKey): Promise<SubmissionReceipt | NotFound>;
-}
+export const CHAT_AGENT = new Agent({
+	name: 'chat',
+	instructions: SYSTEM_PROMPT,     // From agent-chat.model.ts
+	tools: TOOLS,                    // From agent-chat.tools.ts
+	toolNotFoundBehavior: 'return_error_to_model',
+	modelSettings: { maxTokens: MAX_OUTPUT_TOKENS },
+});
 ```
 
-- `list` sorts by `(created_at, id)`, newest first.
-- `read` composes the `read_task` routine with `turns.list(actor, { taskId })`. The task feature never reads turn tables directly.
-- `cancel` returns the durable winner, including an already completed or failed task.
-- `retry` accepts only a `failed` or `canceled` task. It creates a new task with the same instructions and `retryOf` set. The original task never changes. Any other source state refuses with `source_not_retryable`.
+`toAgentInput(history, message)` in `agent-chat.model.ts` builds the run's input:
+
+- The history is the conversation's earlier `completed` runs, oldest first, at most `MAX_HISTORY_RUNS` runs and `MAX_HISTORY_BYTES` in total. The oldest runs drop first.
+- Each history run becomes its message as a user message, then its agent turns' blocks as SDK items in order. Text becomes assistant messages, `tool_call` blocks become function calls, and `tool_result` blocks become function call results.
+- The new message comes last as a user message.
+- Failed and canceled runs never reach the model. An `unsupported` block becomes the text `[unsupported block]`.
+- Messages are plain text, and only `commit_step` writes agent turns. A user therefore cannot forge a tool call or tool result into a model call.
+
+`start_run` loads the history in SQL, and the `start` step saves it as its result. A replay therefore builds the same input. No prompt is stored.
+
+### Tools
+
+`agent-chat.tools.ts` exports the tool catalog. A tool is a pure, deterministic, synchronous function wrapped by the SDK's `tool` helper.
+
+```ts
+export const calculate = pureTool({
+	name: 'calculate',
+	description: 'Evaluate an arithmetic expression.',
+	parameters: z.object({ expression: z.string() }),
+	run: ({ expression }) => ({ value: evaluate(expression) }),
+});
+export const TOOLS = [calculate];
+```
+
+`pureTool` builds an SDK `tool`. Its `execute` runs `run`, rejects an output over 16 KB, and returns the output as JSON. `calculate` evaluates arithmetic with `+`, `-`, `*`, `/`, parentheses, and decimal numbers through a hand-written parser. It never calls `eval` or `Function`.
+
+Tool rules:
+
+- The tools module is a pure role. The `pure-module` lint rule rejects any I/O, clock, randomness, or runtime access inside it (see [Purity](#purity)).
+- Tools run inside the Workflow's `run`, outside any step, so a replay runs them again. A pure tool gives the same result every time.
+- An unknown tool name, invalid arguments, a thrown error, or an oversized output becomes a tool error the model can read, and the run continues.
+- A tool with network, storage, or any other side effect needs the non-pure tool extension in [Deferred extensions](#deferred-extensions). The `pure-module` lint rule rejects such a tool until that extension exists.
 
 ### Private execution contracts
 
-These types live in `agent-tasks.model.ts` and never leave the feature.
+These types live in `agent-chat.model.ts` and never leave the feature.
 
 ```ts
-export type AttemptId = Brand<string, 'AttemptId'>;
-export type ExecutionId = Brand<string, 'ExecutionId'>;
-export type Cursor = { seq: number };
+export type RunPolicy = { maxSteps: number; maxToolCallsPerStep: number };
 
-export type Prompt = {
-	messages: readonly ChatMessage[];   // From platform/model.server.ts
-	tools: readonly ToolSpec[];         // From platform/model.server.ts
-	digest: string;          // SHA-256 of the canonical JSON of messages and tools
-	builderVersion: string;  // Bumped whenever buildPrompt's output format changes
+export type RunInput = {
+	runId: RunId;
+	ownerId: UserId;
+	message: string;
+	history: readonly Exchange[];
+	policy: RunPolicy;
+	deadline: Instant;
 };
 
-export type ModelResponse = {
-	blocks: readonly ContentBlock[];   // text and tool_call blocks only
+// A model response in a form Workflows can save as a step result.
+export type SavedModelResponse = {
+	output: readonly AgentOutputItem[];   // From @openai/agents
 	usage: { inputTokens: number; outputTokens: number };
+	finishReason?: string;
 };
 
 export type ModelOutcome =
-	| { kind: 'response'; response: ModelResponse }
-	| { kind: 'retryable'; retryAfter?: Instant }
-	| { kind: 'terminal'; failure: TaskFailure };
+	| { kind: 'response'; response: SavedModelResponse }
+	| { kind: 'terminal'; failure: RunFailure };
 
-export type Send = { ordinal: number; attempt: AttemptId; promptDigest: string; deadline: Instant } & (
-	| { state: 'in_flight' }
-	| { state: 'observed'; observedAt: Instant; outcome: ModelOutcome }
-);
+export type Commit =
+	| { kind: 'committed'; now: Instant }  // PostgreSQL time
+	| { kind: 'ended' };                   // The run is terminal. The loop stops.
 
-export type RunSnapshot = {
-	now: Instant;
-	deadline: Instant;
-	attempt: { id: AttemptId; token: number };
-	instructions: string;
-	history: readonly Turn[];        // This task's committed agent turns, in step order
-	committedSteps: number;
-	openStep?: { ordinal: number; sends: readonly Send[] };
-};
+export class RunFailed extends Error { constructor(readonly failure: RunFailure) { super(failure.kind); } }
+export class RunEnded extends Error {}
 
-export type Decision =
-	| { kind: 'send'; step: number; prompt: Prompt }
-	| { kind: 'wait'; until: Instant }
-	| { kind: 'commit_step'; step: number; response: ModelResponse; final: boolean }
-	| { kind: 'fail'; failure: TaskFailure };
-
-export type Advance =
-	| { kind: 'checkpoint'; cursor: Cursor }
-	| { kind: 'wait'; until: Instant; cursor: Cursor }
-	| { kind: 'stop' };
-
-export function decide(snapshot: RunSnapshot, tools: ToolCatalog): Decision;
-export function buildPrompt(instructions: string, history: readonly Turn[], tools: ToolCatalog): Prompt;
-export function backoff(sendOrdinal: number): number; // milliseconds
-export function classify(result: GatewayResult): ModelOutcome | 'lost';
+export function toAgentInput(history: readonly Exchange[], message: string): AgentInputItem[];
+export function checkBeforeCall(input: RunInput, step: number, now: Instant): RunFailure | undefined;
+export function checkResponse(response: SavedModelResponse, policy: RunPolicy): RunFailure | undefined;
+export function turnBlocks(response: SavedModelResponse, nextInput?: readonly AgentInputItem[]): ContentBlock[];
+export function classifyModelError(kind: ProviderErrorKind): 'retry' | RunFailure;
+export function failureFromRunError(error: unknown): RunFailure | undefined;
 ```
 
-A send is **lost** when it is `in_flight` and `now` is at or past its deadline. Lost is derived. No row stores it.
-
-### Vocabulary
-
-- A **task** is one submission. Its outcome is terminal once set.
-- An **attempt** is one bounded period during which one Workflow execution owns the task. It has an ID, an ordinal, a unique execution ID, a token, a lease, and an ended outcome. The task row names its active attempt.
-- The **token** is a counter on the attempt. Every fenced write requires the token the runner read and increments it. Two concurrent `advance` calls in one attempt therefore cannot both commit.
-- A **step** is one model response plus the pure tool calls it requested, committed as one agent turn.
-- A **send** is one transmission of a step's prompt to the gateway. A step has one or more sends. At most one send per step is accepted as the step's response.
+- `checkBeforeCall` fails with `limit: 'duration'` when `now` is at or past the deadline, and with `limit: 'steps'` when `step` exceeds `policy.maxSteps`.
+- `checkResponse` fails with `limit: 'tool_calls'` above `policy.maxToolCallsPerStep`, with `model_output_invalid: 'oversized'` when the turn would exceed the turn write caps, and with `model_output_invalid: 'truncated'` when the finish reason is the output token limit.
+- `turnBlocks` parses a response's items, plus each `function_call_result` item in the next request's input that answers one of its calls, with `blocksFromAgentItems`. Arguments that are not valid JSON become `{ unparsed }`.
+- `failureFromRunError` maps an error that escapes the SDK run to a failure. It returns `undefined` for `RunEnded`, because the run is already terminal.
 
 ### Policy and timing defaults
 
-`agent-tasks.model.ts` exports these constants. A unit test asserts every inequality listed under [Timing](#timing).
+`agent-chat.model.ts` exports these constants. A unit test asserts every inequality below the table.
 
 | Constant | Default |
 |---|---|
 | `MAX_STEPS` | 8 |
 | `MAX_TOOL_CALLS_PER_STEP` | 4 |
-| `MAX_SENDS_PER_STEP` | 3 |
-| `MAX_ATTEMPTS` | 3 |
-| `TASK_DURATION` | 15 minutes |
-| `MAX_PROMPT_TOKENS` | 32,000, estimated as UTF-8 bytes divided by 4 |
-| `MAX_OUTPUT_TOKENS` | 1,024 |
-| `SLOTS_PER_USER` | 2 active attempts |
-| `SLOTS_PER_ENVIRONMENT` | 10 active attempts |
-| `SUBMISSIONS_PER_USER_PER_HOUR` | 20 |
-| `SEND_TIMEOUT` (D) | 120 seconds |
-| `STEP_TIMEOUT` (T) | 180 seconds |
-| `STEP_RETRIES` | 2, with exponential backoff starting at 5 seconds |
-| `STEP_RETRY_WINDOW` (W) | `(STEP_RETRIES + 1) × T` plus total retry backoff (555 seconds by default) |
-| `SCHEDULING_ALLOWANCE` (A) | 60 seconds |
-| `CLOCK_SKEW_MARGIN` | 5 seconds |
-| `backoff(n)` | `min(2^n × 2 s, 60 s)`, or the gateway's `retryAfter` when that is later |
-| `REENTRY_ALLOWANCE` | 10 Workflow steps |
+| `MAX_OUTPUT_TOKENS` | 1,024 per model call |
+| `MESSAGES_PER_USER_PER_HOUR` | 60 |
+| `ACTIVE_RUNS_PER_USER` | 2 |
+| `ACTIVE_RUNS_PER_ENVIRONMENT` | 10 |
+| `RUN_DURATION` | 15 minutes |
+| `MODEL_CALL_TIMEOUT` | 120 seconds. The model call aborts after this time. |
+| `MODEL_STEP_TIMEOUT` | 150 seconds. The Workflow step timeout for one model call attempt. |
+| `MODEL_CALL_RETRIES` | 2, with exponential backoff starting at 5 seconds |
+| `DISPATCH_CHECK_DELAY` | 60 seconds |
+| `END_CHECK_GRACE` | 5 minutes |
+| `MAX_HISTORY_RUNS` | 20 |
+| `MAX_HISTORY_BYTES` | 512 KB |
 | `WORKFLOW_STEP_LIMIT` | The current Cloudflare per-instance step limit, copied from Cloudflare's limits page |
 
-The task row stores the policy values in force at admission, so a later deploy never changes a running task's limits. Timing constants are not stored per task. The lease rule in SQL keeps them safe across deploys.
+- `MODEL_STEP_TIMEOUT > MODEL_CALL_TIMEOUT`, so the abort ends a call before Workflows times out the step.
+- `DISPATCH_CHECK_DELAY < RUN_DURATION`.
+- `2 × MAX_STEPS + 2 ≤ WORKFLOW_STEP_LIMIT`. A run uses one start step, a model step and a commit step per step, and at most one fail step.
+- `MAX_HISTORY_BYTES` stays below the 1 MiB Workflow step result limit, because the `start` step saves the history.
 
-### Tools
+The runtime itself has no upper bound on how long a run takes. `RUN_DURATION` and `MAX_STEPS` are the product's limits, and a product that needs hours raises them. The run row stores the `RunPolicy` in force at admission, so a later deploy never changes a running run's step or tool limits. Timing constants are not stored per run. A deploy that changes them affects only steps that start after the deploy.
 
-`agent-tasks.tools.ts` exports the tool catalog. A tool is a pure, deterministic, synchronous function.
+### The Workflow
 
-```ts
-export type PureTool<I, O> = { name: string; description: string; input: z.ZodType<I>; output: z.ZodType<O>; run(input: I): O };
-export type ToolCatalog = readonly PureTool<never, unknown>[];
-export const TOOLS: ToolCatalog = [calculate];
-```
-
-The reference ships one tool. `calculate` takes `{ expression: string }`, evaluates arithmetic with `+`, `-`, `*`, `/`, parentheses, and decimal numbers through a hand-written parser, and returns `{ value: number }`. It never calls `eval` or `Function`.
-
-Tool rules:
-
-- The tools module imports only `zod`, its own feature schema, and other pure modules. A lint rule bans `fetch`, `caches`, `crypto`, `Date`, `Math.random`, `process`, and Worker bindings inside it.
-- Tools are not journaled. Re-running a tool on recovery is free and gives the same result.
-- The runner parses model-supplied arguments with the tool's input schema before `run`. An unknown tool name, unparsed or invalid arguments, a thrown error, or an output over 16 KB becomes `{ kind: 'tool_result', isError: true }` with a short message the model can read.
-- A tool with network, storage, or any other side effect needs the non-pure tool extension in [Deferred extensions](#deferred-extensions). The tool-purity lint rule rejects such a tool until that extension exists.
-
-### Prompt construction
-
-`buildPrompt` is pure.
-
-- It reads only the task's `instructions` and its committed agent turns. User turns never reach a prompt, so a user cannot forge a tool result into a model call.
-- The first message is a fixed system message from `agent-tasks.model.ts`. The second is the instructions as the user message.
-- Each agent turn becomes one assistant message holding its `text` and `tool_call` blocks, followed by one tool message per `tool_result`.
-- A `tool_call` whose input is `{ unparsed }` is sent back as its raw string.
-- An `unsupported` block becomes the text `[unsupported block]`.
-- `tools` lists the catalog with each tool's name, description, and JSON schema.
-- No prompt is stored. Each send records the prompt's digest and builder version. A resend rebuilds the prompt from the same immutable turns.
-
-### The agent loop
-
-The runner loads a `RunSnapshot` in one read, including PostgreSQL's `now`, calls `decide`, and applies exactly one decision per `advance`. `decide` checks these rows in order and returns the first match.
-
-| Snapshot | Decision |
-|---|---|
-| `now` at or past `deadline` | `fail` with `limit: 'duration'` |
-| No open step and `committedSteps` equals `MAX_STEPS` | `fail` with `limit: 'steps'` |
-| No open step, and the built prompt exceeds `MAX_PROMPT_TOKENS` | `fail` with `limit: 'context'` |
-| No open step | `send` for step `committedSteps + 1` |
-| Open step, a send observed as `response` | `commit_step`, with `final` true when the response holds no `tool_call` |
-| Open step, latest send `in_flight` and before its deadline, from any attempt | `wait` until that deadline |
-| Open step, latest send `terminal` | `fail` with that send's failure |
-| Open step, latest send `retryable`, and `now` before the later of `observedAt + backoff(ordinal)` and `retryAfter` | `wait` until that time |
-| Open step, latest send lost or `retryable`, and sends equal `MAX_SENDS_PER_STEP` | `fail` with `limit: 'sends'` |
-| Open step, latest send lost or `retryable` | `send` for the same step |
-
-`commit_step` runs every requested tool before it writes the turn. A committed turn therefore never holds an unresolved tool call, and "no open step" always means the next action is a model call.
-
-The runner maps each decision to transactions and an `Advance` result.
-
-| Decision | Work inside one `advance` | Result |
-|---|---|---|
-| `send` | **Transaction 1** (`begin_send`, fenced): open the step if absent, insert an `in_flight` send with deadline `now + D` and the prompt digest, extend the lease, and mark the task `running` if it was `queued`. It returns the time remaining until the deadline. **Gateway call**: the model adapter aborts the call after that remaining time minus `CLOCK_SKEW_MARGIN`. **Transaction 2** (`record_observation`): store the classified outcome. The runner retries Transaction 2 in-process up to 3 times on transient database errors. | `checkpoint` |
-| `wait` | `extend_lease` (fenced) sets the lease to cover the wake time. | `wait` |
-| `commit_step` | Run the tools. Then `commit_step` (fenced) writes the agent turn, closes the step, and, when `final`, completes the task with `finalTurn`, ends the attempt, and releases the slot. | `checkpoint`, or `stop` when final |
-| `fail` | `fail_task` (fenced) sets the failure, ends the attempt, and releases the slot. | `stop` |
-
-Each `advance` returns `cursor.seq + 1` in its result, so every Workflow step name is unique and deterministic.
-
-### Fencing and rejections
-
-A fenced routine takes `(attempt_id, token)` and commits only when all of these hold:
-
-- the attempt is the task's active attempt,
-- the task is not terminal,
-- the attempt's token equals the given token.
-
-It increments the token in the same transaction. Each rejection maps to one result.
-
-| Rejection | `advance` result |
-|---|---|
-| Attempt not active, or task terminal | `stop`, with no further writes |
-| Stale token, or a unique-key conflict on step, send, or turn | `checkpoint`, so the next `advance` reads a fresh snapshot |
-| Task deadline passed | Call `fail_task` with `limit: 'duration'`, then `stop` |
-
-`record_observation` is not token-fenced, so a concurrent `wait` in the same attempt cannot discard a response that already arrived. It stores the outcome only when all of these hold, and otherwise logs the IDs and discards the response:
-
-- the send is the latest send of its step,
-- the send is still `in_flight`,
-- PostgreSQL `now` is before the send's deadline,
-- the send's attempt is still the task's active attempt.
-
-A partial unique index allows at most one `response` outcome per step. If Transaction 2 still fails after its retries, the response is lost and the step sends again later. The send limit bounds that duplicate charge.
-
-### Runner error handling
-
-The runner classifies every error that escapes a decision:
-
-- **Transient** errors (database connection failure, Supabase timeout, HTTP 5xx from Supabase) are rethrown. The Workflow step retries and re-enters `advance`, which is safe because the snapshot decides.
-- **Every other error** is a defect. The runner calls `fail_task` with `{ kind: 'execution', code: 'internal' }`, logs the cause with its correlation IDs, and returns `stop`. A deterministic bug fails the task once instead of consuming every attempt.
-
-### Model adapter and gateway outcomes
-
-`platform/model.server.ts` exports `ChatMessage`, `ToolSpec`, and `GatewayResult`, and one function that sends one chat-completion request to `AI_GATEWAY_URL`. `GatewayResult` is `{ kind: 'http'; status; headers; body: unknown }`, `{ kind: 'aborted' }`, or `{ kind: 'network_error' }`. The request carries:
-
-- `model` from `AI_MODEL`,
-- the prompt's messages and tools,
-- `max_tokens` from `MAX_OUTPUT_TOKENS`,
-- `user` set to the task owner's user ID, which the gateway uses for per-user budgets,
-- metadata naming the task (as the trace ID), the step, and the send, in the field names the chosen gateway forwards to Langfuse,
-- an `AbortSignal` that fires after the duration the runner passes in.
-
-`classify` in `agent-tasks.model.ts` is a pure function from `GatewayResult` to a `ModelOutcome`, or `'lost'` for an abort or network error. It parses the body with zod and checks the turn caps and the tool-call limit. `agent-tasks.model.test.ts` runs it against recorded fixtures of the chosen gateway's responses.
-
-| Gateway outcome | `ModelOutcome` | Loop behavior |
-|---|---|---|
-| Complete response within the turn caps | `response` | `commit_step` |
-| Response blocks exceed the turn write caps | `terminal`, `model_output_invalid: 'oversized'` | `fail` |
-| More tool calls than `MAX_TOOL_CALLS_PER_STEP` | `terminal`, `limit: 'tool_calls'` | `fail` |
-| Finish reason is the output token limit | `terminal`, `model_output_invalid: 'truncated'` | `fail` |
-| Tool-call arguments that are not valid JSON | `response`, with the argument kept as `{ unparsed }` | `commit_step`; the tool returns an error result |
-| Rate limit from the gateway or upstream, 5xx, provider overloaded | `retryable`, with `retryAfter` from the `Retry-After` header when present | `wait`, then a new send |
-| Context length exceeded | `terminal`, `limit: 'context'` | `fail` |
-| Budget exceeded, per user or per key | `terminal`, `gateway_refused: 'budget'` | `fail` |
-| Content policy refusal | `terminal`, `gateway_refused: 'policy'` | `fail` |
-| 401, 403, or unknown model | `terminal`, `gateway_refused: 'configuration'` | `fail` |
-| Abort at the timeout, network loss, crash before Transaction 2 | No outcome; the send becomes lost | A new send |
-| Anything the classifier does not recognize | `terminal`, `execution` with `unclassified_gateway_response` | `fail` |
-
-A repeated model call can be charged twice. The template accepts that cost. The send limit and the gateway's per-user budget bound it, and Langfuse shows it.
-
-### Lifecycle and cancellation
-
-| Current state | Allowed next states |
-|---|---|
-| `queued` | `running`, `failed`, `canceled` |
-| `running` | `completed`, `failed`, `canceled`. A successor attempt may take over without a state change. |
-| `completed`, `failed`, `canceled` | None |
-
-- A task becomes `running` in the `begin_send` transaction of its first send.
-- Cancellation, completion, and failure lock the same task row. The first committed terminal transition wins. Repeated cancellation returns that winner.
-- A winning cancellation ends the active attempt and releases its slot in the same transaction. No new send and no new turn can follow, because both need the active attempt. A gateway call already in flight is aborted by its deadline, and its result is discarded.
-- Releasing the slot at cancel means a user who submits and cancels repeatedly can briefly have more aborted calls running at the provider than their slot count. The gateway's per-user rate limit bounds that.
-- A completed task's `finalTurn` is written by its final `commit_step` in the same transaction that completes the task. A final answer is never visible on a running task.
-- `version` increases on every change to the task row. Clients use it for cache reconciliation. Runner writes are fenced by the attempt token, not by `version`.
-
-### Submission
-
-`submit` runs one database routine, `submit_task`, in one transaction:
-
-1. Check the actor's submission window. A rate-limited submission returns `refused: rate_limited` and writes no row, so the same key is evaluated again later.
-2. Insert the receipt with `on conflict do nothing` on `(owner_id, request_key)`. If the key exists, compare the canonical input hash and return the stored receipt or `key_conflict`. The canonical input is the operation (`submit` or `retry`), the instructions, and the source task ID for a retry.
-3. Upsert the user and environment slot rows, lock them in the fixed order, and check both limits. A capacity refusal records a `refused: capacity` receipt and creates no task.
-4. On acceptance, create the task with its policy snapshot and deadline, its first attempt with a new execution ID and no lease, and the slot claims.
-
-After the transaction commits, `submit` calls the injected `startExecution(executionId)` and ignores its failure. The nudge removes the cron delay from the common path. The reconciler is the correctness path.
-
-### Dispatch and recovery
-
-The scheduled handler runs the reconciler every minute. Each run processes at most 25 attempts per query, oldest first. The two queries never select the same attempt.
-
-- **Unacknowledged attempts.** Active attempts with no dispatch acknowledgement. Call `startExecution(executionId)`. A duplicate-ID error means the instance exists and counts as success. The first fenced write in `advance` acknowledges the attempt and sets its first lease. An unacknowledged attempt holds no lease, so a dispatch outage consumes no attempts. Its age is logged as oldest-pending age.
-- **Expired leases.** Acknowledged active attempts whose lease has passed. In one transaction, end the attempt, and if the task is nonterminal and attempts remain, create a successor attempt with a new execution ID and transfer the slot to it. When attempts are exhausted, fail the task with `limit: 'attempts'` and release the slot.
-
-A lost execution has one recovery path. Its lease expires, and a successor replaces it. An execution ID is never reused. The Workflow payload is `{ executionId }` and nothing else. The runner resolves the attempt from its unique execution ID and returns `stop` if that attempt has ended. PostgreSQL, not Cloudflare's instance retention, deduplicates executions.
-
-### Timing
-
-These inequalities hold, and the timing unit test asserts them:
-
-- `T ≥ D + 60 s`. The extra 60 seconds cover the step's database transactions and tool runs.
-- `W = (STEP_RETRIES + 1) × T + total retry backoff`.
-- Every fenced write sets the lease to `max(current lease, now + W + A)`. Before a `wait`, `extend_lease` sets it to at least `until + W + A`.
-- Every routine that sets a lease also raises it to at least the latest deadline of the attempt's `in_flight` sends plus `CLOCK_SKEW_MARGIN`. This rule lives in SQL and reads stored deadlines, so it holds when a deploy changes the constants mid-task.
-- Leases never extend past the task deadline plus `W`.
-- `MAX_STEPS × (2 × MAX_SENDS_PER_STEP + 1) + REENTRY_ALLOWANCE ≤ WORKFLOW_STEP_LIMIT`. Each send uses at most two Workflow steps (the send and one wait), and each logical step adds one commit.
-
-**Safety guarantee.** A successor attempt exists only after the lease expires, and the lease outlasts every send the old attempt may still have running. At most one send per task is live at the adapter. A provider may keep processing a request the adapter aborted. The gateway's per-user budget bounds that cost.
-
-**Liveness.** A healthy attempt renews its lease long before it expires. A Workflow wake later than `A` can still lose the lease. That is safe, because the fence stops the old runner, and it costs one attempt.
-
-### Workflow adapter
-
-`agent-tasks.workflow.server.ts` exports `AgentTasksWorkflow`, a Cloudflare `WorkflowEntrypoint`.
+`agent-chat.workflow.server.ts` exports `AgentChatWorkflow`, a Cloudflare `WorkflowEntrypoint`, and the `DurableModel` it uses.
 
 ```ts
-export class AgentTasksWorkflow extends WorkflowEntrypoint<Env, unknown> {
+export class AgentChatWorkflow extends WorkflowEntrypoint<Env, unknown> {
 	async run(event: WorkflowEvent<unknown>, step: WorkflowStep) {
-		const { executionId } = parseExecutionPayload(event.payload);
+		const { runId } = parseRunPayload(event.payload);
 		const runner = createRunner(this.env);
-		let cursor: Cursor = { seq: 0 };
-		for (;;) {
-			const next = await step.do(`advance-${cursor.seq}`, STEP_CONFIG, () => runner.advance(executionId, cursor));
-			if (next.kind === 'stop') return;
-			if (next.kind === 'wait') await step.sleepUntil(`wait-${cursor.seq}`, new Date(next.until));
-			cursor = next.cursor;
+		const start = await step.do('start', () => runner.start(runId));
+		if (start.kind === 'ended') return;
+		const model = new DurableModel(step, runner, start.input, start.now);
+		try {
+			const result = await new Runner({ model, tracingDisabled: true }).run(
+				CHAT_AGENT,
+				toAgentInput(start.input.history, start.input.message),
+				{ maxTurns: start.input.policy.maxSteps + 1 },
+			);
+			await model.commitFinal(result);
+		} catch (error) {
+			const failure = failureFromRunError(error);
+			if (failure) await step.do('fail', () => runner.fail(runId, failure));
 		}
 	}
 }
 ```
 
-`STEP_CONFIG` sets `timeout` to `T` and `retries` to `{ limit: STEP_RETRIES, delay: '5 seconds', backoff: 'exponential' }`. The adapter holds no domain logic. Workflows earn their place over a database-only loop because they continue to the next step immediately and sleep durably. The reconciler is only the recovery path.
+`DurableModel` implements the SDK's `Model` interface. Its `getResponse(request)` does this for model call `n`:
+
+1. If `n > 1`, run step `commit-${n - 1}`. It calls `commit_step` with `turnBlocks(previous response, request.input)`. If the step returns `ended`, throw `RunEnded`.
+2. If `checkBeforeCall(input, n, now)` returns a failure, throw `RunFailed` with it.
+3. Run step `model-${n}` with `MODEL_STEP_CONFIG`. Inside the step, `runner.callModel(request)` sends the request through the provider from `platform/model.server.ts`, aborts it after `MODEL_CALL_TIMEOUT`, and returns a `ModelOutcome`. It throws only when `classifyModelError` returns `'retry'`, so Workflows retries the step.
+4. If the step throws after its retries, throw `RunFailed` with `limit: 'model_retries'`. If the outcome is `terminal`, or `checkResponse` returns a failure, throw `RunFailed` with it.
+5. Remember the response and return it to the SDK.
+
+`commitFinal` runs the last commit step with `final` set to true. `getStreamedResponse` throws, because runs never stream.
+
+| Step | Work | Retries |
+|---|---|---|
+| `start` | `start_run`: return `ended` if the run is terminal. Otherwise mark it `running` and return its `RunInput`, including the history, and PostgreSQL `now`. | Workflows default |
+| `model-N` | One model call, classified | `MODEL_STEP_CONFIG` |
+| `commit-N` | `commit_step` for step `N` | Workflows default |
+| `fail` | `fail_run` | Workflows default |
+
+`MODEL_STEP_CONFIG` sets `retries` to `{ limit: MODEL_CALL_RETRIES, delay: '5 seconds', backoff: 'exponential' }` and `timeout` to `MODEL_STEP_TIMEOUT`.
+
+Workflow rules:
+
+- The payload is `{ runId }` and nothing else.
+- Step names come only from the call count. Never rename a step. A deploy replays running instances against the new code, and Workflows matches saved results by step name.
+- Code outside `step.do` is deterministic. SDK tracing is disabled, so no trace export runs on replay, and no trace data leaves the Worker.
+- `DurableModel` holds no domain logic. Every check is a function in `agent-chat.model.ts`.
+- `maxTurns` is one above `policy.maxSteps`, so `checkBeforeCall` reports the step limit after the last step is committed. `MaxTurnsExceededError` is only a backstop.
+
+### Commit and failure routines
+
+`commit_step(p_run_id, p_step_ordinal, p_blocks, p_final, p_usage)` runs in one transaction:
+
+1. Lock the run row.
+2. If a turn already exists for `(run_id, step_ordinal)`, the commit step is repeating. Return `ended` if the run is terminal, and otherwise `committed`.
+3. If the run is terminal, return `ended` and write nothing.
+4. If PostgreSQL `now` is at or past the deadline, fail the run with `limit: 'duration'` and return `ended`.
+5. Insert the agent turn, increment `committed_steps`, add the token usage, increment `version`, and set the conversation's `updated_at`.
+6. If `p_final` is true, complete the run with `final_turn_id` and `ended_at`.
+7. Return `ended` for a final step, or `committed` with PostgreSQL `now`.
+
+`fail_run(p_run_id, p_failure)` locks the run row. If the run is nonterminal, it records the failure. It returns the durable winner either way.
+
+### Why the loop is safe
+
+- **One instance per run.** The Workflow instance ID is the run ID, and Workflows refuses a second instance with the same ID.
+- **A saved model call is never sent again.** On replay, `step.do` returns the saved response.
+- **A replay rebuilds the same conversation.** The input comes from the saved `start` step, the model responses come from saved steps, and pure tools give the same results.
+- **A repeated commit changes nothing.** `commit_step` is keyed by `(run_id, step_ordinal)`. `start_run`, `fail_run`, and `cancel_run` change nothing on a terminal run.
+- **A terminal run stays terminal.** Every routine checks the run state while it holds the row lock.
+- **A lost run is noticed.** The sweep fails the run by `deadline + END_CHECK_GRACE`.
+
+The template accepts one cost. A model call repeats when its step's result fails to save, or when the step times out while the provider is still working. Each repeat can be charged. `MODEL_CALL_RETRIES` bounds a step to `MODEL_CALL_RETRIES + 1` model calls.
+
+### Model provider and errors
+
+`platform/model.server.ts` exports `createModelProvider(env)` and `classifyProviderError(error)`. Neither function knows anything about chat.
+
+- `createModelProvider` returns an SDK `OpenAIProvider` for the Chat Completions API at `LLM_BASE_URL`, with `LLM_API_KEY` and the default model `LLM_MODEL`. The client's own retries are off (`maxRetries: 0`), because Workflows retries model steps.
+- `classifyProviderError` maps the error a model call throws to one `ProviderErrorKind`: `retryable`, `context_length`, `quota`, `policy`, `configuration`, or `unknown`. `src/platform/model.server.test.ts` runs it against recorded fixtures of the chosen provider's error responses.
+
+| Provider outcome | Result | Run behavior |
+|---|---|---|
+| Complete response within the turn caps | `response` | The SDK runs the tools, and the next model call commits the step |
+| Response blocks exceed the turn write caps | `model_output_invalid: 'oversized'` | The run fails |
+| More tool calls than `MAX_TOOL_CALLS_PER_STEP` | `limit: 'tool_calls'` | The run fails |
+| Finish reason is the output token limit | `model_output_invalid: 'truncated'` | The run fails |
+| `retryable`: rate limit, 5xx, overloaded, abort at the timeout, network loss | `'retry'` | Workflows retries the model step after its backoff |
+| `context_length` | `limit: 'context'` | The run fails |
+| `quota`, `policy`, `configuration` | `provider_refused` with the same reason | The run fails |
+| `unknown` | `execution` with `unclassified_provider_response` | The run fails |
+
+Errors that escape the SDK run map to failures through `failureFromRunError`:
+
+| Error | Failure |
+|---|---|
+| `RunFailed` | The failure it carries |
+| `RunEnded` | None. The run is already terminal. |
+| `MaxTurnsExceededError` | `limit: 'steps'` |
+| Any other error, including `ModelBehaviorError` | `execution` with `internal` |
+
+Workflows' retry backoff does not read the provider's `Retry-After` header. The backoff starts at 5 seconds and doubles.
+
+### Progress in the browser
+
+- `readConversation` returns each run with its committed agent turns. While a visible run is `queued` or `running`, the conversation query polls every 2 seconds and stops when the run ends. Each poll is one invoker read under the caller's JWT.
+- The page shows a run's steps as they are saved: text, tool calls, and tool results. Between steps it shows that the run is working, with the number of committed steps.
+- Nothing is pushed to the browser. A tab that was closed shows the current state when it opens.
 
 ### Limits summary
 
 | Limit | Enforced by |
 |---|---|
-| Active attempts per user and per environment | `submit_task` and the reconciler, in PostgreSQL |
-| Submissions and turn creates per user per hour | Window counters in PostgreSQL, checked before any row is written |
-| Steps, sends per step, attempts, duration | `decide` and the reconciler, from the task's policy snapshot |
-| Tool calls per step, response size | The model outcome classifier |
-| Prompt size | `decide`, before each new step |
-| Output tokens per call | The `max_tokens` request parameter |
-| Instruction, block, and turn size | Write schemas at the RPC boundary |
-| Spend, token budgets, provider rate limits | The AI gateway, per environment key and per end user |
+| Active runs per user and per environment | `submit_message`, counted from run state under the environment lock |
+| One active run per conversation | `submit_message` |
+| Messages per user per hour | `submit_message`, counted from runs created within the last hour, before any row is written |
+| Steps, duration | `checkBeforeCall`, from the run's policy snapshot. `commit_step` also checks the deadline. |
+| Model calls per step | `MODEL_STEP_CONFIG` retries |
+| Tool calls per step, response size, truncation | `checkResponse` |
+| History sent to the model | `toAgentInput`, by `MAX_HISTORY_RUNS` and `MAX_HISTORY_BYTES` |
+| Prompt size | The provider's context-length error |
+| Output tokens per call | `maxTokens` in the agent's model settings |
+| Message, block, and turn size | Write schemas at the RPC boundary |
+| A run that never ends | The sweep, at `deadline + END_CHECK_GRACE` |
+
+### Chat UI
+
+- `/chat` lists conversations and has a composer that starts a new one. `/chat/$conversationId` shows the exchanges, oldest at the top, with the composer at the bottom.
+- Each exchange shows the message and the committed agent turns. While the run is active, it also shows a working indicator with the step count and a stop button.
+- A failed or canceled run shows its reason and a button that sends the same text again with a new request key.
+- `turn-view.tsx` renders an agent turn by switching exhaustively over `block.kind`, with a small component per kind in the same file. The TypeScript `never` check fails the build when a kind lacks a branch. Move a block component to its own file only when it grows.
+- The repository parses stored blocks by `block_schema_version` and kind. An unknown kind or version becomes `unsupported`. Removing or reshaping a block kind requires a SQL data migration in the same change.
 
 ## Database
 
 ### Schemas and roles
 
-Each feature with tables owns two PostgreSQL schemas and the roles its routines need.
+Each feature with tables owns two PostgreSQL schemas. Only the agent-turn write boundary needs its own role.
 
 | Feature | Private schema (tables, internal routines) | Exposed schema (routines callable through PostgREST) | Roles |
 |---|---|---|---|
-| account | `account` | `account_api` | `account_reader` |
-| agent-turns | `agent_turns` | `agent_turns_api` | `agent_turns_reader`, `agent_turns_writer` |
-| agent-tasks | `agent_tasks` | `agent_tasks_api` | `agent_tasks_reader`, `agent_tasks_committer` |
+| account | `account` | `account_api` | None |
+| agent-chat | `agent_chat` | `agent_chat_api` | `agent_chat_committer` |
 
 `supabase/config.toml` lists only the `*_api` schemas (plus Supabase's defaults) under `[api] schemas`. Private schemas are never exposed.
 
@@ -756,161 +778,99 @@ Each feature directory under `supabase/schemas/` holds `schema.sql` (schemas and
 
 Every feature uses the same pattern. Agents copy it for new features.
 
-**Reads.** A read routine is `security definer`, owned by the feature's reader role, with `set search_path = ''` and schema-qualified names. The reader role is `nologin`, owns no tables, has no `bypassrls`, and holds only `select` on the tables it reads. The routine raises `42501` when `auth.uid()` is null and filters by `auth.uid()`. Every RLS policy on the table targets both `authenticated` and the reader role, so the policy enforces ownership a second time. Execution is granted to `authenticated` only. The server calls read routines through the request client, so the caller's JWT reaches PostgreSQL.
+**Reads.** A read routine is `security invoker`, with `set search_path = ''` and schema-qualified names. The server calls it through the request client, so it runs as `authenticated` under the caller's JWT. `authenticated` holds `select` on the private tables it reads and nothing more. The private schema is not exposed, so the browser cannot query those tables directly. RLS policies `for select to authenticated using (owner_id = (select auth.uid()))` enforce ownership. Execution is granted to `authenticated` only.
 
 **Writes.** A mutation routine is `security invoker` and runs as `service_role`. The server calls it through the service client in `platform/supabase.server.ts`, which uses the server-only secret key. Each routine takes the actor's user ID as a parameter that the server function took from `requireActor`, and checks every ownership relationship itself, because `service_role` bypasses RLS. Execution is revoked from `public`, `anon`, and `authenticated`, and granted to `service_role`.
 
-**Tables.** Tables live in the private schema with RLS enabled. Revoke all table privileges from `anon` and `authenticated`. Grant `service_role` exactly the privileges its invoker routines need.
+**Tables.** Tables live in the private schema with RLS enabled. Revoke all table privileges from `anon` and `authenticated`, then grant `authenticated` only the `select` its read routines need. Grant `service_role` exactly the privileges its invoker routines need.
 
-**Migration roles.** `grants.sql` grants each feature role to `postgres` so the migration can transfer function ownership to it.
+**Migration roles.** `grants.sql` grants the committer role to `postgres` so the migration can transfer function ownership to it.
 
-### Agent-turn grant boundary
+### Reference SQL for Account
 
-PostgreSQL grants go to roles, not to calling routines. Only `agent_tasks_api.commit_step` may write an agent turn, and the boundary is built from roles:
-
-- `agent_turns.insert_agent_turn` lives in the private schema, so PostgREST cannot reach it. It is `security definer` and owned by `agent_turns_writer`, which holds `insert` on `agent_turns.turns`, has an RLS insert policy that only admits `role = 'agent'`, and owns nothing else.
-- Execution of `insert_agent_turn` is revoked from `public`, `anon`, `authenticated`, and `service_role`, and granted only to `agent_tasks_committer`.
-- `agent_tasks_api.commit_step` is `security definer` and owned by `agent_tasks_committer`. That role owns exactly this one routine and holds the task-table privileges `commit_step` needs. `service_role` may execute `commit_step`, never `insert_agent_turn`.
-- `supabase/tests/` asserts the grant list on `insert_agent_turn`, that `agent_tasks_committer` owns one routine, and that a direct call as `service_role` fails.
-
-### Reference SQL for Agent Turns
-
-The SQL below is the pattern to copy. Routine bodies follow the behavior in [Turn behavior](#turn-behavior).
+The SQL below is the pattern to copy for a feature's tables, reads, and writes.
 
 ```sql
--- supabase/schemas/agent-turns/schema.sql
-create schema agent_turns;
-create schema agent_turns_api;
-create role agent_turns_reader nologin;
-create role agent_turns_writer nologin;
+-- supabase/schemas/account/schema.sql
+create schema account;
+create schema account_api;
 
--- supabase/schemas/agent-turns/tables.sql
-create table agent_turns.turns (
-	id uuid primary key default gen_random_uuid(),
-	owner_id uuid not null references auth.users (id) on delete cascade,
-	role text not null check (role in ('user', 'agent')),
-	blocks jsonb not null,
-	block_schema_version int not null,
-	request_key text,
-	input_hash text,
-	task_id uuid,
-	step_ordinal int,
-	created_at timestamptz not null default now(),
-	check ((role = 'user') = (request_key is not null and input_hash is not null and task_id is null)),
-	check ((role = 'agent') = (task_id is not null and step_ordinal is not null)),
-	unique (owner_id, request_key),
-	unique (task_id, step_ordinal)
-);
-create table agent_turns.creation_windows (
-	owner_id uuid not null,
-	window_start timestamptz not null,
-	count int not null,
-	primary key (owner_id, window_start)
+-- supabase/schemas/account/tables.sql
+create table account.profiles (
+	user_id uuid primary key references auth.users (id) on delete cascade,
+	display_name text not null check (char_length(display_name) between 1 and 80),
+	updated_at timestamptz not null default now()
 );
 
--- supabase/schemas/agent-turns/policies.sql
-alter table agent_turns.turns enable row level security;
-alter table agent_turns.creation_windows enable row level security;
-create policy turns_owner_read on agent_turns.turns
-	for select to authenticated, agent_turns_reader
-	using (owner_id = (select auth.uid()));
-create policy turns_agent_insert on agent_turns.turns
-	for insert to agent_turns_writer
-	with check (role = 'agent');
+-- supabase/schemas/account/policies.sql
+alter table account.profiles enable row level security;
+create policy profiles_owner_read on account.profiles
+	for select to authenticated
+	using (user_id = (select auth.uid()));
 
--- supabase/schemas/agent-turns/routines.sql
-create function agent_turns_api.list_turns(p_after jsonb, p_limit int)
-returns table (id uuid, role text, blocks jsonb, block_schema_version int, task_id uuid, created_at timestamptz)
-language plpgsql stable security definer set search_path = '' as $$
-begin
-	if auth.uid() is null then
-		raise exception 'not authenticated' using errcode = '42501';
-	end if;
-	return query
-		select t.id, t.role, t.blocks, t.block_schema_version, t.task_id, t.created_at
-		from agent_turns.turns t
-		where t.owner_id = auth.uid()
-			and t.task_id is null
-			and (p_after is null or (t.created_at, t.id) < ((p_after->>'created_at')::timestamptz, (p_after->>'id')::uuid))
-		order by t.created_at desc, t.id desc
-		limit least(p_limit, 50);
-end;
-$$;
--- list_task_turns(p_task_id uuid, p_after_step int, p_limit int) follows the same shape,
--- filters task_id = p_task_id, and orders by step_ordinal ascending.
-
-create function agent_turns_api.create_turn(
-	p_owner_id uuid, p_request_key text, p_input_hash text, p_blocks jsonb, p_block_schema_version int)
-returns jsonb
-language plpgsql security invoker set search_path = '' as $$
--- 1. Increment the owner's current-hour window; return {"kind":"rate_limited","retryAfter":...} above the limit.
--- 2. Insert with on conflict (owner_id, request_key) do nothing.
--- 3. Read the stored row; return {"kind":"stored",...} on a matching input_hash, else {"kind":"key_conflict"}.
+-- supabase/schemas/account/routines.sql
+create function account_api.get_profile()
+returns table (display_name text, updated_at timestamptz)
+language sql stable security invoker set search_path = '' as $$
+	-- RLS limits rows to the caller's own profile.
+	select p.display_name, p.updated_at from account.profiles p;
 $$;
 
-create function agent_turns.insert_agent_turn(
-	p_owner_id uuid, p_task_id uuid, p_step_ordinal int, p_blocks jsonb, p_block_schema_version int)
-returns uuid
-language sql security definer set search_path = '' as $$
-	insert into agent_turns.turns (owner_id, role, blocks, block_schema_version, task_id, step_ordinal)
-	values (p_owner_id, 'agent', p_blocks, p_block_schema_version, p_task_id, p_step_ordinal)
-	returning id;
+create function account_api.upsert_profile(p_user_id uuid, p_display_name text)
+returns void
+language sql security invoker set search_path = '' as $$
+	insert into account.profiles (user_id, display_name, updated_at)
+	values (p_user_id, p_display_name, now())
+	on conflict (user_id) do update set display_name = excluded.display_name, updated_at = now();
 $$;
 
--- supabase/schemas/agent-turns/grants.sql
-grant agent_turns_reader, agent_turns_writer to postgres;
-revoke all on all tables in schema agent_turns from anon, authenticated;
-grant usage on schema agent_turns to agent_turns_reader, agent_turns_writer, service_role;
-grant usage on schema agent_turns_api to authenticated, service_role;
-grant usage on schema auth to agent_turns_reader;
-grant execute on function auth.uid() to agent_turns_reader;
-grant select on agent_turns.turns to agent_turns_reader;
-grant insert on agent_turns.turns to agent_turns_writer;
-grant select, insert on agent_turns.turns to service_role;
-grant select, insert, update on agent_turns.creation_windows to service_role;
+-- supabase/schemas/account/grants.sql
+revoke all on all tables in schema account from anon, authenticated;
+grant usage on schema account to authenticated, service_role;
+grant usage on schema account_api to authenticated, service_role;
+grant select on account.profiles to authenticated;
+grant select, insert, update on account.profiles to service_role;
 
-alter function agent_turns_api.list_turns(jsonb, int) owner to agent_turns_reader;
-revoke execute on function agent_turns_api.list_turns(jsonb, int) from public, anon;
-grant execute on function agent_turns_api.list_turns(jsonb, int) to authenticated;
+revoke execute on function account_api.get_profile() from public, anon;
+grant execute on function account_api.get_profile() to authenticated;
 
-revoke execute on function agent_turns_api.create_turn(uuid, text, text, jsonb, int) from public, anon, authenticated;
-grant execute on function agent_turns_api.create_turn(uuid, text, text, jsonb, int) to service_role;
-
-alter function agent_turns.insert_agent_turn(uuid, uuid, int, jsonb, int) owner to agent_turns_writer;
-revoke execute on function agent_turns.insert_agent_turn(uuid, uuid, int, jsonb, int) from public, anon, authenticated, service_role;
-grant execute on function agent_turns.insert_agent_turn(uuid, uuid, int, jsonb, int) to agent_tasks_committer;
-grant usage on schema agent_turns to agent_tasks_committer;
+revoke execute on function account_api.upsert_profile(uuid, text) from public, anon, authenticated;
+grant execute on function account_api.upsert_profile(uuid, text) to service_role;
 ```
 
-### Agent Tasks storage
+`getProfile` returns the stored profile, or a default with an empty display name when the routine returns no row.
+
+### Agent Chat storage
 
 | Table | Columns and constraints |
 |---|---|
-| `agent_tasks.receipts` | `owner_id`, `request_key`, `input_hash`, `result jsonb`, `created_at`. Primary key `(owner_id, request_key)`. |
-| `agent_tasks.tasks` | `id`, `owner_id`, `environment_id`, `instructions` (at most 8 KB), `retry_of_task_id`, `policy jsonb`, `deadline`, `version`, `state`, `failure jsonb`, `active_attempt_id`, `committed_steps`, `final_turn_id`, `created_at`, `ended_at`. Check: `state` is one of the five states. Check: terminal states have `ended_at` and no `active_attempt_id`. |
-| `agent_tasks.attempts` | `id`, `task_id`, `ordinal`, `execution_id` (unique), `token`, `lease_expires_at` (null until acknowledged), `acknowledged_at`, `ended_at`, `ended_reason`, `created_at`. Unique `(task_id, ordinal)`. |
-| `agent_tasks.steps` | `task_id`, `ordinal`, `opened_at`, `turn_id`, `committed_at`. Primary key `(task_id, ordinal)`. |
-| `agent_tasks.sends` | `task_id`, `step_ordinal`, `ordinal`, `attempt_id`, `prompt_digest`, `builder_version`, `deadline`, `observed_at`, `outcome_kind`, `outcome jsonb` (holds the response blocks, already within the turn caps), `input_tokens`, `output_tokens`. Primary key `(task_id, step_ordinal, ordinal)`. Partial unique index on `(task_id, step_ordinal)` where `outcome_kind = 'response'`. |
-| `agent_tasks.slots` | `scope` (`user` or `environment`), `scope_id`, `active`. Primary key `(scope, scope_id)`. Check: `active >= 0`. |
-| `agent_tasks.submission_windows` | `owner_id`, `window_start`, `count`. Primary key `(owner_id, window_start)`. |
+| `agent_chat.conversations` | `id`, `owner_id`, `title` (1 to 80 characters), `created_at`, `updated_at` |
+| `agent_chat.runs` | `id`, `conversation_id`, `owner_id`, `environment_id`, `message` (at most 32 KB), `request_key`, `input_hash`, `policy jsonb`, `deadline`, `version`, `state`, `failure jsonb`, `committed_steps`, `final_turn_id`, `input_tokens`, `output_tokens`, `created_at`, `ended_at`. Unique `(owner_id, request_key)`. Check: `state` is one of the five states. Check: `ended_at` is set exactly when the state is terminal. Check: `final_turn_id` is set exactly when the state is `completed`, and `failure` exactly when it is `failed`. |
+| `agent_chat.turns` | `id`, `run_id`, `owner_id`, `step_ordinal`, `blocks jsonb`, `block_schema_version`, `created_at`. Unique `(run_id, step_ordinal)`. |
 
-Indexes: `attempts (acknowledged_at) where ended_at is null`, `attempts (lease_expires_at) where ended_at is null and acknowledged_at is not null`, and `tasks (owner_id, created_at desc, id desc)`.
+Every table has an owner-read RLS policy for `authenticated`.
 
-Routines in `agent_tasks_api`:
+Indexes: `conversations (owner_id, updated_at desc, id desc)`, `runs (conversation_id, created_at desc, id desc)`, `runs (owner_id, created_at)`, and `runs (environment_id) where state in ('queued', 'running')`.
+
+Routines in `agent_chat_api`:
 
 | Routine | Security | Called by |
 |---|---|---|
-| `submit_task`, `cancel_task` | Invoker, `service_role` | Server functions through `tasks` |
-| `load_snapshot`, `begin_send`, `record_observation`, `extend_lease`, `fail_task`, `acknowledge` | Invoker, `service_role` | The runner |
-| `commit_step` | Definer, owner `agent_tasks_committer` | The runner |
-| `claim_unacknowledged`, `expire_leases` | Invoker, `service_role` | The reconciler |
-| `list_tasks`, `read_task` | Definer, owner `agent_tasks_reader` | Server functions, with the caller's JWT |
+| `submit_message`, `cancel_run` | Invoker, `service_role` | The chat service |
+| `start_run`, `fail_run` | Invoker, `service_role` | The runner inside Workflow steps, and the sweep |
+| `commit_step` | Definer, owner `agent_chat_committer` | The runner, inside commit steps |
+| `sweep_candidates` | Invoker, `service_role` | The sweep |
+| `list_conversations`, `read_conversation` | Invoker, `authenticated` | The service, with the caller's JWT |
 
-Lock order in every routine: slot rows (user, then environment), then the task, then the attempt, then the step, then sends. A routine that starts from a task ID first reads the task's owner and environment without a lock, which is safe because neither ever changes. It then takes the locks in order. No routine holds a lock while a provider call runs, because every provider call happens between transactions.
+Lock order: `submit_message` takes the environment's advisory lock before it touches any row. Every other routine locks only the run row. No routine holds a lock while a provider call runs, because every provider call runs in its own Workflow step, outside every transaction.
 
-### Account storage
+### Agent-turn write boundary
 
-`account.profiles` holds `user_id` (primary key, references `auth.users` on delete cascade), `display_name` (1 to 80 characters), and `updated_at`. `account_api.get_profile()` is a definer read routine owned by `account_reader`. `account_api.upsert_profile(p_user_id, p_display_name)` is an invoker mutation routine.
+PostgreSQL grants go to roles, not to calling routines. Only `agent_chat_api.commit_step` may write an agent turn, and the boundary is built from a role:
+
+- `agent_chat.turns` grants `insert` to `agent_chat_committer` only. `service_role` holds `select` on it and no write privilege, so no invoker routine can write a turn.
+- `commit_step` is `security definer` and owned by `agent_chat_committer`. That role owns exactly this one routine and holds the run-table and conversation-table privileges `commit_step` needs. `service_role` may execute `commit_step`.
+- `supabase/tests/` asserts the grants on `agent_chat.turns`, that `agent_chat_committer` owns one routine, and that an insert as `service_role` fails.
 
 ### Schema change workflow
 
@@ -928,22 +888,22 @@ Migration history is append-only. Never edit an applied migration. Never run unr
 
 ### `src/server.ts`
 
-`src/server.ts` is the Worker entry. It is the only module that imports feature runtime or workflow code.
+`src/server.ts` is the Worker entry. It is the only module that registers Workflow classes and builds the sweep.
 
 - It exports the TanStack Start request handler as `fetch`.
-- It exports `scheduled`, which builds the reconciler and runs one pass.
-- It exports the `AgentTasksWorkflow` class.
-- It builds `startExecution(executionId)` from the `AGENT_TASKS_WORKFLOW` binding as `env.AGENT_TASKS_WORKFLOW.create({ id: executionId, params: { executionId } })`, and injects it into the task API and the reconciler.
+- It exports `scheduled`, which runs one `sweepRuns` pass.
+- It exports the `AgentChatWorkflow` class.
+- It builds `WorkflowRuns` from the `AGENT_CHAT_WORKFLOW` binding and injects it into the chat service. `start` calls `env.AGENT_CHAT_WORKFLOW.create({ id: runId, params: { runId } })` and treats an existing instance as success. `terminate` calls `terminate()` on the instance.
 
 It contains no rules. The exact TanStack Start server-entry API follows the pinned TanStack Start version.
 
 ### `wrangler.jsonc`
 
 - `main` is `src/server.ts`, with the `nodejs_compat` compatibility flag.
-- `workflows`: one entry named `agent-tasks`, binding `AGENT_TASKS_WORKFLOW`, class `AgentTasksWorkflow`.
+- `workflows`: one entry named `agent-chat`, binding `AGENT_CHAT_WORKFLOW`, class `AgentChatWorkflow`.
 - `triggers.crons`: `["* * * * *"]`.
-- `vars`: `ENVIRONMENT_ID`, `APP_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `AI_GATEWAY_URL`, `AI_MODEL`.
-- Secrets, set with `wrangler secret put`: `SUPABASE_SECRET_KEY` and `AI_GATEWAY_KEY`.
+- `vars`: `ENVIRONMENT_ID`, `APP_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `LLM_BASE_URL`, `LLM_MODEL`.
+- Secrets, set with `wrangler secret put`: `SUPABASE_SECRET_KEY` and `LLM_API_KEY`.
 
 ### Environment parsing
 
@@ -955,58 +915,133 @@ It contains no rules. The exact TanStack Start server-entry API follows the pinn
 
 TanStack Query is the client replica of server state. Never add another global state manager.
 
-- `*.queries.ts` owns query keys and options. Keys start with the feature name and include the user ID for private data.
-- The task detail query polls every 2 seconds while the task is `queued` or `running` and stops at a terminal state. The task list polls every 10 seconds while any listed task is nonterminal.
-- `*.commands.ts` owns mutations. Each command creates the request key once, retries transport errors with the same key, and invalidates the affected queries on success.
+- `*.queries.ts` owns query keys, query options, and mutations. Keys start with the feature name and include the user ID for private data.
+- While a visible run is `queued` or `running`, the conversation query polls every 2 seconds and stops at a terminal state. No other query polls.
+- Every mutation goes through `platform/mutations.ts`. It owns request keys, transport retries, and invalidation, so a feature declares only what to send and what to invalidate.
 - SSR creates one QueryClient per request.
 - Ephemeral UI state stays in React components.
+
+### Mutations
+
+`platform/mutations.ts` is client-safe and knows no feature. It exports two hooks, and `*.queries.ts` builds every mutation from one of them.
+
+```ts
+type MutationSpec<Input, Result> = {
+	mutationKey: QueryKey;
+	invalidate: (result: Result, input: Input) => readonly QueryKey[];
+};
+
+// For a create. Each `submit` creates one RequestKey. Transport retries rerun the mutation
+// with the same variables, so they reuse that key.
+export function useKeyedMutation<Input, Receipt>(spec: MutationSpec<Input, Receipt> & {
+	send: (input: Input & { requestKey: RequestKey }) => Promise<Receipt>;
+}): MutationHandle<Input, Receipt>;
+
+// For a mutation that is idempotent by its input, such as an upsert or a cancel.
+export function useIdempotentMutation<Input, Result>(spec: MutationSpec<Input, Result> & {
+	send: (input: Input) => Promise<Result>;
+}): MutationHandle<Input, Result>;
+```
+
+- `MutationHandle` is TanStack Query's mutation result, with `submit(input)` in place of `mutate`.
+- Both hooks retry a thrown error up to 3 times with exponential backoff. A server function returns its safe errors and refusals as values, so only transport failures throw.
+- On success, both hooks invalidate the keys `invalidate` returns.
+- `sendMessage` uses `useKeyedMutation`. `updateProfile`, `stopRun`, and `startGoogleSignIn` use `useIdempotentMutation`.
+- The `client-data-path` lint rule bans `useMutation` outside `platform/mutations.ts`, so a feature cannot write its own retry or key logic.
 
 ### Routes and shell
 
 | Route | Content |
 |---|---|
-| `/login`, `/signup`, `/reset-password`, `/update-password` | Auth forms |
-| `/` (authenticated) | Redirects to `/tasks` |
-| `/tasks` | Task form and task list |
-| `/tasks/$taskId` | Task status, activity, transcript, cancel and retry buttons, failure explanation |
-| `/turns` | Turn composer and turn list |
+| `/login` | "Continue with Google" button and the sign-in failure message |
+| `/auth/callback` | Server route; no UI |
+| `/` (authenticated) | Redirects to `/chat` |
+| `/chat` | Conversation list and a composer that starts a conversation |
+| `/chat/$conversationId` | Exchanges with each saved step, the stop button, failure reasons, and the composer |
 | `/account` | Profile form |
 
-`layouts/app-shell.tsx` provides responsive navigation (Tasks, Turns, Account) and an account menu with logout. Every data view renders consistent loading, empty, error, and success states from `components/patterns/`. Feature-specific UI stays in its feature. Generic primitives live in `components/ui/`. Domain-agnostic compositions live in `components/patterns/`.
+`layouts/app-shell.tsx` provides responsive navigation (Chat, Account) and an account menu with logout. Every data view renders consistent loading, empty, error, and success states from `components/patterns/`. Feature-specific UI stays in its feature. Generic primitives live in `components/ui/`. Domain-agnostic compositions live in `components/patterns/`.
 
-## Observability
+### Styling
 
-`platform/logger.server.ts` writes structured JSON logs to the Workers runtime log.
-
-- Every request gets a correlation ID. Safe errors return it to the client.
-- Task logs include task, attempt, execution, step, and send IDs, the classified outcome, and timings.
-- The reconciler logs oldest-pending age, expired leases handled, and failures.
-- Track lost-send count, retryable-failure count, stale-write rejections, discarded late responses, execution-defect failures, and gateway refusals as log fields that the Workers dashboard can filter.
-- Never log credentials, cookies, prompts, or completions. Prompts and completions are visible in Langfuse under its own access control.
+- Tailwind CSS v4 runs through the `@tailwindcss/vite` plugin. There is no `tailwind.config.*` and no PostCSS config. Configuration lives in CSS.
+- `src/styles/app.css` is the only stylesheet. It holds `@import "tailwindcss";`, the shadcn/ui theme variables for light and dark under `:root` and `.dark`, and the `@theme inline` block that maps them to Tailwind tokens. `__root.tsx` links it in the document head.
+- Components style with Tailwind utility classes only. There are no CSS modules, CSS-in-JS, or inline `style` attributes, except for values computed at runtime.
+- Colors come only from theme tokens such as `bg-background` and `text-muted-foreground`. There are no raw palette classes such as `bg-zinc-900` and no hex values in components.
+- `components.json` sets `style: "new-york"`, `baseColor: "neutral"`, `cssVariables: true`, `iconLibrary: "lucide"`, an empty `tailwind.config`, and the aliases `ui` and `components` to `@/components/ui` and `utils` to `@/components/ui/cn`.
+- Add a shadcn/ui component only when a feature uses it, with the pinned CLI: `pnpm exec shadcn add <name>`. The generated file is owned source in `components/ui/`. Edit it in place. Rerunning `shadcn add` for an existing component overwrites local edits, so review the diff before keeping it.
+- `components/ui/cn.ts` exports `cn()`, which combines `clsx` and `tailwind-merge`. Conditional class names go through `cn()`.
 
 ## Static enforcement
 
-`architecture/policy.ts` is the single machine-readable source for ownership roles, public entrypoints, the dependency table, the composition root, tool purity, verification profiles, and fixture expectations. Tools derive their configuration from it:
+`tools/boundary-enforcement/policy.ts` is the single machine-readable source for file roles, the dependency allowlist, the package lists, the pure roles, the rules and their checks, the composition root, and fixture expectations. Every tool derives its configuration from it:
 
 - `dependency-cruiser.config.cjs` imports the policy and enforces [Dependency rules](#dependency-rules), feature direction, and cycles.
-- `oxlint.config.ts` enables Oxlint correctness, TypeScript, React, and import rules, the vendored anti-slop rules, the provider-SDK ban outside `platform/model.server.ts`, and the I/O-global ban inside `*.tools.ts`. Adapt an anti-slop rule only with a one-line reason in the config.
-- `tools/verify.ts` reads the verification profiles.
-- A check script compares the navigation block in `AGENTS.md` with the policy keys. CI rejects drift.
+- `oxlint.config.ts` enables Oxlint correctness, TypeScript, React, and import rules, the vendored anti-slop rules, and the repo-owned rules in `tools/boundary-enforcement/lint-rules/`. Adapt an anti-slop rule only with a one-line reason in the config.
+- `tools/boundary-enforcement/check-client-bundle.ts` builds the pinned TanStack application and inspects every emitted browser chunk, including lazy chunks. It fails on server-only module paths, server packages, private environment names, database or provider clients, and a planted secret sentinel string.
+- `tools/boundary-enforcement/check-repo.ts` checks what no import graph shows: banned packages, version pins, forbidden files, the migration ledger, and generated files.
+- `tools/boundary-enforcement/generate-architecture.ts` renders the generated app's `ARCHITECTURE.md` from the policy.
 
-`tools/check-client-bundle.ts` builds the pinned TanStack application and inspects every emitted browser chunk, including lazy chunks. It fails on server-only module paths, private environment names, database or provider clients, and a planted secret sentinel string.
+Once the template is built, `policy.ts` is the source of truth for every table it encodes. Change a rule there, and the checks and the generated `ARCHITECTURE.md` follow.
 
-Architecture fixtures under `tests/architecture/` prove each rule. Every negative fixture declares the diagnostic and path it expects. A checker crash, missing dependency, or syntax error fails the test run and never counts as a rejection. Each boundary has a positive fixture beside its negative ones, so an always-failing checker cannot pass.
+### Purity
+
+The pure roles are `*.schema.ts`, `*.model.ts`, `*.tools.ts`, `*.agent.ts`, and every module in `src/domain/` that does not end in `.server.ts`. Workflow replays rerun them, so the same input must always give the same output. The `pure-module` lint rule bans these inside them:
+
+- I/O: `fetch`, `caches`, `XMLHttpRequest`, `WebSocket`, `navigator`, and browser storage
+- Runtime access: `process`, `globalThis`, the Worker `env`, and imports from `cloudflare:*` or `node:*`
+- Clocks and timers: `Date.now`, `new Date()` with no argument, `performance`, `setTimeout`, `setInterval`, and `queueMicrotask`
+- Randomness: `Math.random` and `crypto`
+
+Time enters a pure module only as an `Instant` argument, which comes from PostgreSQL.
+
+### Rule checks
+
+Every **must** and **never** rule in this document appears in one row. `policy.ts` holds the same table, and the generated `ARCHITECTURE.md` renders it.
+
+| Check | Rules it enforces |
+|---|---|
+| dependency-cruiser | The import allowlist, package lists, one-way feature dependencies, and no feature cycles |
+| `check-client-bundle.ts` | No server code, server packages, private environment names, or secrets in browser chunks |
+| Lint `pure-module` | Pure roles do no I/O and read no clock, randomness, or runtime |
+| Lint `client-data-path` | No `fetch`, `XMLHttpRequest`, or `WebSocket` in routes, `ui/`, layouts, or components. `queryFn` appears only in `*.queries.ts`. `useMutation` appears only in `platform/mutations.ts`. |
+| Lint `model-adapter` | Only `platform/model.server.ts` imports `openai` or builds a model provider |
+| Lint `env-access` | Only `platform/env.server.ts` reads Worker `env` fields. `src/server.ts` reads only the Workflow binding. A Workflow passes `this.env` on without reading it. |
+| Lint `test-sign-in` | Only `tests/fixtures/test-users.ts` calls `signInWithPassword` or `auth.admin` |
+| Lint `brand-cast` | Brands come from parsers. A type assertion to a brand appears only in `platform/`, `*.schema.ts`, and `*.repo.server.ts`. |
+| Lint `no-reexport` | No barrel files. `src/` contains no re-export statements. |
+| Lint `styling` | Tailwind utility classes only, theme-token colors only, no raw palette classes or hex values, and no `style` attribute with a literal value |
+| `check-repo.ts` | No banned package (ESLint, a second global state manager such as Redux, Zustand, Jotai, MobX, Valtio, or Recoil, or a DI container such as InversifyJS or tsyringe). Every dependency is pinned to an exact version. No `tailwind.config.*`, `postcss.config.*`, ESLint config, or stylesheet besides `src/styles/app.css`. Applied migrations are never edited or deleted, and a new migration sorts after the base branch's newest. The committed `ARCHITECTURE.md` matches a fresh render of the policy. |
+| `pnpm check` type regeneration | `src/platform/database.types.ts` is never edited by hand. `pnpm check` regenerates it after `db:reset` and fails on a diff. |
+| `tsc` | `turn-view.tsx` handles every block kind, through the `never` check |
+| Proof: two-user denial | Ownership is checked in SQL, by RLS on reads and by each mutation routine on writes |
+| Proof: `service_role` insert into turns | Only `commit_step` writes an agent turn |
+| Proofs: replay and deploy between steps | Code outside `step.do` is deterministic. Step names are never renamed. |
+| Proof: timing constants | Every inequality under [Policy and timing defaults](#policy-and-timing-defaults) |
+| Deploy | Auth settings live only in `supabase/config.toml`. Each deploy applies it with `supabase config push` and overwrites dashboard changes. |
+| `review` | No forwarding service, and a service only when a use case does more than call one repository routine. A server function never checks ownership. No placeholder files. Removing or reshaping a block kind ships with its SQL data migration. Secrets never appear in code, logs, commits, or agent output, beyond what the bundle sentinel catches. Never reset a production database. |
+
+### Fixtures
+
+Fixtures under `tools/boundary-enforcement/fixtures/` prove each check, and `tools/boundary-enforcement/boundary-enforcement.test.ts` runs them. Every negative fixture declares the diagnostic and path it expects. A checker crash, missing dependency, or syntax error fails the test run and never counts as a rejection. Each check has a positive fixture beside its negative ones, so an always-failing checker cannot pass. The test also fails when a rule in `policy.ts` whose check is dependency-cruiser, a lint rule, or `check-repo.ts` has no negative fixture.
 
 | Fixture | Expected result |
 |---|---|
-| UI → command → server function → repository | Passes. The bundle check finds no server code or sentinel. |
-| UI imports a repository | Ownership diagnostic naming the edge |
-| UI reaches server code through a helper or re-export | Client-reachability diagnostic naming the path |
+| UI → query → server function → repository | Passes. The bundle check finds no server code or sentinel. |
+| UI imports a repository, a `*.functions.ts` module, or a `*.model.ts` module | Ownership diagnostic naming the edge |
+| UI imports a server package | Package diagnostic naming the edge |
+| A route imports a `*.functions.ts` module | Ownership diagnostic naming the edge |
+| UI reaches server code through a helper | Client-reachability diagnostic naming the path |
 | A `*.functions.ts` module exports a client-run helper that uses server code | Client-reachability diagnostic |
 | `platform/` imports a feature Workflow class | Composition-root diagnostic |
-| `agent-turns` imports `agent-tasks` | Dependency-direction diagnostic |
-| A feature imports a provider SDK | Model-adapter diagnostic |
-| A tool imports a server module or calls `fetch` | Tool-purity diagnostic |
+| A feature imports `openai` or builds a model provider | Model-adapter diagnostic |
+| A tool, model, or agent module imports a server module, calls `fetch`, reads `Date.now()`, or calls `Math.random` | Purity diagnostic |
+| UI calls `fetch` or `useMutation`, or defines a `queryFn` | Client-data-path diagnostic |
+| A feature module reads an `env` field | Env-access diagnostic |
+| Caller code casts a string to `UserId` | Brand-cast diagnostic |
+| A feature module re-exports another module | No-reexport diagnostic |
+| A component uses `bg-zinc-900`, a hex color, or a literal `style` | Styling diagnostic |
+| `package.json` adds ESLint, Zustand, or a version range; a commit edits an applied migration; `ARCHITECTURE.md` is stale | Repo diagnostic naming the rule |
 | Cross-feature private import, feature cycle, or runtime import in a schema | The matching ownership, cycle, or purity diagnostic |
 
 ## Testing
@@ -1015,7 +1050,7 @@ Architecture fixtures under `tests/architecture/` prove each rule. Every negativ
 
 - Prefer one meaningful E2E journey per feature over many low-value unit tests.
 - Test behavior a caller can observe. Never assert private helper choices, internal call order, or rendering of static markup.
-- Recorded requests to the gateway double, including the absence of a second request, are observable behavior.
+- Recorded requests to the provider double, including the absence of a second request, are observable behavior.
 - No coverage percentage or test-count target.
 - Tests fail when behavior breaks and survive refactors that keep the contract.
 
@@ -1024,23 +1059,23 @@ Architecture fixtures under `tests/architecture/` prove each rule. Every negativ
 | Kind | Location | Runner |
 |---|---|---|
 | E2E journey | `src/features/<feature>/<feature>.e2e.spec.ts` | Playwright against the local stack |
-| Feature integration | `src/features/<feature>/<feature>.integration.test.ts` | Vitest against the local Supabase database |
+| Feature integration | `src/features/<feature>/<feature>.integration.test.ts` | Vitest in the Workers runtime (`@cloudflare/vitest-pool-workers`) against the local Supabase database |
 | Pure logic | `src/features/<feature>/<feature>.model.test.ts` | Vitest |
+| Provider error classification | `src/platform/model.server.test.ts` | Vitest against recorded provider fixtures |
 | Database security | `supabase/tests/` | SQL tests through the Supabase CLI |
-| Architecture | `tests/architecture/` | Vitest driving the checkers |
+| Boundary enforcement | `tools/boundary-enforcement/boundary-enforcement.test.ts` | Vitest driving the checkers |
 
-`tests/fixtures/` holds the deterministic gateway double. It serves the OpenAI-compatible endpoint, returns scripted responses for every row of the classification table, can delay a response past its deadline, and records every request. Database failpoints are test-only hooks in the integration harness that inject a transient error or pause a transaction.
+`tests/fixtures/` holds the deterministic provider double. It serves the OpenAI-compatible endpoint, returns scripted responses for every row of the classification table, can delay a response past `MODEL_CALL_TIMEOUT`, and records every request. Database failpoints are test-only hooks in the integration harness that inject a transient error or pause a transaction.
 
 ### E2E journeys
 
 | Feature | Journey |
 |---|---|
-| Auth | Sign up, log in, open a protected page, log out, confirm the page redirects |
+| Auth | Open `/chat` signed out and confirm the redirect to `/login`. Click "Continue with Google", intercept the navigation to `accounts.google.com`, assert its `client_id` and `redirect_uri` parameters, and abort it. Open `/auth/callback?code=invalid` and confirm the redirect to `/login?error=sign_in_failed`. Sign in with `signInAs`, open `/chat`, log out, and confirm `/chat` redirects to `/login`. |
 | Account | Update the display name, reload, confirm it persisted |
-| Agent Turns | Create a text turn in the composer, reload, confirm it persisted. Seed one turn holding every block kind through `createTurn` and one row with an unknown kind through SQL, then confirm each renders, including the unsupported fallback. |
-| Agent Tasks | Submit a task that calls `calculate`, watch it reach `completed`, reload, and confirm the transcript shows the tool call, the tool result, and the final turn. Submit a second task and cancel it. |
+| Agent Chat | Send a message that makes the provider double call `calculate`. See the tool call and the tool result appear as their step is saved, reload while the run is active, and confirm the run continues and the transcript shows the tool call, the tool result, and the final turn. Send a second message whose reply the double delays, and stop it. Seed one agent turn holding every block kind and one row with an unknown kind through SQL, then confirm each renders, including the unsupported fallback. |
 
-CI runs the journeys with the gateway double. A separate live smoke test, run by `pnpm verify:deployed`, submits a real task through the gateway, confirms its trace reached Langfuse, and confirms a per-user budget refusal is classified as `gateway_refused: 'budget'`.
+CI runs the journeys with the provider double. A separate live smoke test, run by `pnpm verify:deployed`, sends a real message to the configured LLM provider and confirms its run completes.
 
 ### Required proofs
 
@@ -1048,34 +1083,33 @@ Each row is at least one integration or database test.
 
 | Scenario | Observable assertion |
 |---|---|
-| Same submission or turn retried; changed input under the same key | One task or turn, or `key_conflict` |
-| Two identical submissions or turn creates race on one key | One row; both callers get the same receipt |
-| A user exceeds the submission or turn-creation window | Refusal with no row written |
-| Two submissions contend for the last execution slot | At most one admitted; slot counts match active attempts |
-| Dispatch nudge fails, and Workflow creation fails for several reconciler runs | Submission still accepted; no attempt consumed; execution starts once creation succeeds |
-| Workflow instance errors or disappears, including after retention | Lease expires; a successor with a new execution ID continues from committed steps |
-| Transient database error inside `advance` | The step retry re-enters and the task proceeds without a new attempt |
-| Transaction 2 fails after a response arrives, past its retries | The step sends once more; the send count shows it |
-| Crash after a response is recorded, before `commit_step` | The successor commits the stored response with no new send |
-| Two `advance` calls of one attempt run concurrently | One fenced write commits; the other re-reads; at most one send in flight |
-| Successor finds its predecessor's send in flight | It waits until that deadline, then sends |
-| A response arrives after its deadline, or after a newer send exists | Discarded; at most one response accepted per step |
-| A deploy shortens the timing constants mid-send | The lease still outlasts the in-flight send |
-| Retryable outcome, then wake after backoff | Sends again after the backoff and not before |
-| Each row of the gateway classification table | The loop takes the specified behavior; sends stop at the send limit |
-| A runner defect throws on every attempt | Task fails once with `execution`; no other attempts consumed |
-| Completion, failure, and cancellation in every commit order | The first terminal outcome persists; the slot is released once |
-| Fenced or canceled runner reaches `commit_step` | No turn written; no orphan turn in the transcript |
-| Final step commits | Task completes with `finalTurn` in the same transaction; no extra turn |
-| Task deadline passes during a backoff or an in-flight send | Task fails with `limit: 'duration'` |
-| Steps, tool calls, sends, attempts, and prompt size each exhausted | Each converges to its specified failure |
-| Unknown tool, unparsable or invalid arguments, throwing tool, oversized tool output | Each becomes an `isError` tool result |
-| Malformed request, environment, Workflow payload, row, or gateway body; oversized input | Rejected at the adapter with a classified diagnostic |
-| Stored block of an unknown kind or version | Renders the fallback and becomes a placeholder in prompts |
-| `unsupported` or unpaired `tool_result` submitted for writing | The write schema rejects it |
-| Two users list, read, and mutate each other's data | Denied by authorization and RLS |
-| `service_role` calls `insert_agent_turn` directly | The database rejects it; the catalog grant test passes |
-| Timing constants | The timing unit test asserts every inequality |
+| Same message retried; changed input under the same key | One run, or `key_conflict` |
+| Two identical messages race on one key | One run; both callers get the same receipt |
+| A user exceeds the message window | Refusal with no row written |
+| Two messages contend for the last active-run place, per user and per environment | At most one admitted |
+| A second message in a conversation with an active run | `busy`, with no row written |
+| `workflowRuns.start` fails after `submit_message` commits | The sweep starts the run, and it completes |
+| A run errors outside its loop, or never starts before the deadline | The sweep fails the run by `deadline + END_CHECK_GRACE` |
+| A run crashes mid-loop and Workflows replays it | Saved model calls are not sent again; the provider double records no repeat; one turn per step |
+| A commit step repeats after its transaction committed | One turn; the repeat changes nothing |
+| A deploy lands between two steps of a running run | The run resumes from its saved steps and completes |
+| A model call fails transiently, then succeeds | The run proceeds; the provider double records one extra request |
+| Every model call for a step is retryable | Fails with `limit: 'model_retries'` after `MODEL_CALL_RETRIES + 1` requests |
+| Each row of the provider classification table | The run takes the specified behavior |
+| The SDK throws `ModelBehaviorError` or any unexpected error | Fails once with `execution: 'internal'` |
+| Stop during a model call | The run is canceled; no turn is written after the cancellation; the instance ends |
+| Completion, failure, and cancellation in every commit order | The first terminal outcome persists |
+| Final step commits | The run completes with `finalTurn` in the same transaction; no extra turn |
+| Run deadline passes during a model call or a retry backoff | The run fails with `limit: 'duration'` |
+| Steps and tool calls each exhausted; the provider reports context length exceeded | Each converges to its specified failure |
+| A conversation's history exceeds `MAX_HISTORY_RUNS` or `MAX_HISTORY_BYTES` | The oldest runs drop; failed and canceled runs never reach the model |
+| Unknown tool, unparsable or invalid arguments, throwing tool, oversized tool output | Each becomes a tool error the model can read |
+| Malformed request, environment, Workflow payload, row, or provider body; oversized input | Rejected at the adapter with a classified diagnostic |
+| Stored block of an unknown kind or version | Renders the fallback and becomes a placeholder in model input |
+| A message with anything but plain text, or an agent turn with `unsupported` or an unpaired `tool_result` | The write schema rejects it |
+| Two users list, read, and mutate each other's data | Denied by RLS on reads and by the mutation routine's ownership check on writes |
+| `service_role` inserts into `agent_chat.turns` directly | The database rejects it; the catalog grant test passes |
+| Timing constants | The constants unit test asserts every inequality |
 
 ## Commands, validation, and CI
 
@@ -1083,21 +1117,20 @@ Each row is at least one integration or database test.
 
 | Command | What it does |
 |---|---|
-| `pnpm dev` | Runs the app locally against the local Supabase stack and the gateway double |
+| `pnpm dev` | Runs the app locally against the local Supabase stack and the provider double |
 | `pnpm lint` | Oxlint with anti-slop and the policy-derived rules |
-| `pnpm check:boundaries` | dependency-cruiser and the `AGENTS.md` drift check |
-| `pnpm check:fast` | `lint` and `check:boundaries` |
+| `pnpm check:boundaries` | dependency-cruiser |
+| `pnpm check:repo` | `check-repo.ts`. It compares migrations against the pull request's base branch in CI and against `origin/main` locally. |
+| `pnpm check:fast` | `lint`, `check:boundaries`, and `check:repo` |
+| `pnpm gen:architecture` | Renders `ARCHITECTURE.md` from `policy.ts` |
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm test` | Vitest unit, integration, and architecture tests |
 | `pnpm test:db` | SQL tests in `supabase/tests/` |
 | `pnpm test:e2e` | Playwright journeys |
 | `pnpm check:bundle` | Production build and client-bundle inspection |
-| `pnpm check` | Everything above against a freshly reset local database. CI runs this. |
-| `pnpm verify --base <commit>` | The completion profile for the changed files, staged and untracked included, plus their dependents |
-| `pnpm verify:deployed --env <id>` | Live checks against a selected deployed environment |
+| `pnpm check` | Everything above against a freshly reset local database, then `db:types` with a failure on any diff. CI runs this. |
+| `pnpm verify:deployed --env <name>` | Live checks against a deployed Wrangler environment |
 | `pnpm db:reset`, `pnpm db:diff <name>`, `pnpm db:types` | Local database reset, migration generation, type generation |
-
-`pnpm verify` selects checks from the verification profiles in `architecture/policy.ts`. Unknown impact selects the full `pnpm check`. A persistence change adds migration replay, type drift, and `test:db`. A documentation-only change runs link checks. A missing prerequisite or an empty test selection for changed behavior reports `incomplete`, never `pass`.
 
 ### When checks run
 
@@ -1105,7 +1138,7 @@ Each row is at least one integration or database test.
 |---|---|---|
 | Each file edit | None | No interruption |
 | Optional `PostToolUse` hook in `tools/hooks/` | Targeted fast checks on the edited file | Feedback only. Never required for correctness. |
-| Before an agent reports completion | `pnpm verify --base <branch base>` | The agent fixes failures, with bounded repair attempts |
+| Before an agent reports completion | `pnpm check:fast`, `pnpm typecheck`, and the tests of every changed feature. Add `pnpm test:db` after a schema change. | The agent fixes failures, with bounded repair attempts |
 | Pull request | `pnpm check` in CI | Mandatory, blocking |
 | Merge to `main` | `deploy.yml` | Migrate, deploy, `verify:deployed` |
 
@@ -1114,25 +1147,26 @@ If a check cannot run, report it as not run. Never claim success without it.
 ### CI
 
 - `ci.yml` installs the pinned pnpm and dependencies, starts the local Supabase stack, and runs `pnpm check`. It runs on every pull request and blocks merging on failure.
-- `deploy.yml` runs on `main` behind a GitHub environment with required approval for production. It applies migrations with `supabase db push`, deploys with `wrangler deploy`, and runs `pnpm verify:deployed`. A deployment with unrun or failing verification is reported as `unverified`.
+- `deploy.yml` runs on `main` behind a GitHub environment with required approval for production. It applies Auth configuration with `supabase config push`, applies migrations with `supabase db push`, deploys with `wrangler deploy`, and runs `pnpm verify:deployed`. A deployment with unrun or failing verification is reported as `unverified`.
 
 ## Environments and deployment
 
-### Environment manifest
+### Environments
 
-Each environment has a nonsecret manifest committed as `environments/<id>.json`, parsed by `tools/verify.ts`. It holds the environment ID, Supabase project reference, Worker name, AI gateway URL, model name, and the names of the secrets the environment needs. Identity is explicit and survives a repository rename. The manifest never creates resources.
+Each deployed environment is a named environment in `wrangler.jsonc` (`dev` and `production`). Its `vars` hold its nonsecret settings. CI holds each environment's Supabase project reference and secrets as GitHub environment secrets.
 
 ### Deployment
 
-1. Apply migrations from the ledger with the pinned Supabase CLI.
-2. Deploy the Worker with the pinned Wrangler.
-3. Run `pnpm verify:deployed --env <id>`.
+1. Apply `supabase/config.toml` with `supabase config push` using the pinned Supabase CLI.
+2. Apply migrations from the ledger with the pinned Supabase CLI.
+3. Deploy the Worker with the pinned Wrangler.
+4. Run `pnpm verify:deployed --env <name>`.
 
-After a lost response at any step, inspect the migration history or the deployed version before retrying. Supply secrets through Wrangler and Supabase secret management. Never write a secret into code, logs, commits, manifests, or agent output.
+After a lost response at any step, inspect the migration history or the deployed version before retrying. Supply secrets through Wrangler and Supabase secret management. Never write a secret into code, logs, commits, or agent output.
 
 ### Isolation
 
-- Development, CI, and production use separate Supabase projects or branches, separate Worker names, and separate gateway keys.
+- Development, CI, and production use separate Supabase projects or branches, separate Worker names, and separate LLM API keys.
 - A test run owns its Auth users, Storage prefixes, Workflow instance IDs, and data.
 - Ordinary development needs no local containers. Container-backed local Supabase runs in CI and where Docker exists.
 - Never reset a production database or another developer's database. If no safe target exists, the check reports the missing capability and stops.
@@ -1141,27 +1175,29 @@ After a lost response at any step, inspect the migration history or the deployed
 
 - Target Cloudflare Free and Supabase Free. Never require a paid plan silently.
 - Avoid always-on compute. Keep Workflow steps small and I/O-bound.
+- Workflows on Workers Free allow 1,024 steps per instance, 100 concurrent instances per account, 10 ms of CPU per step, and 3 days of retention, according to Cloudflare's limits page at the time of writing. `ACTIVE_RUNS_PER_ENVIRONMENT` stays below the concurrency limit.
 - Supabase Free projects pause after inactivity. `verify:deployed` reports a paused project as a failed prerequisite.
-- LLM spend and production SMTP are external costs. The README of the generated app lists them.
+- `verify:deployed` reads `<SUPABASE_URL>/auth/v1/settings` and reports a disabled Google provider as a failed prerequisite.
+- LLM spend is the only external cost. Google sign-in is free. The README of the generated app lists the cost.
 - General-purpose subprocesses and code-execution agents are outside the Cloudflare target.
 
 ## Agent guidance files
 
 ### `AGENTS.md`
 
-`AGENTS.md` stays short. Working reference features teach patterns, and checks enforce rules. Its navigation block is checked against `architecture/policy.ts`.
+`AGENTS.md` stays short. Working reference features teach patterns, and checks enforce rules.
 
 ```markdown
 ## Architecture
 
-- ARCHITECTURE.md is the specification. Follow it.
-- Organize by feature. Copy the closest reference: `agent-turns` for synchronous work, `agent-tasks` for asynchronous work.
-- UI reads through queries and writes through commands.
-- Other features are reached only through their `*.schema.ts` and `*.api.server.ts`.
-- Database definitions live in `supabase/schemas/<owner>/`. Copy the agent-turns access pattern.
+- ARCHITECTURE.md lists every file role, import rule, and rule check. It is generated from `tools/boundary-enforcement/policy.ts`. To change a rule, change the policy and its check, then run `pnpm gen:architecture`.
+- Organize by feature. Copy the closest reference: `account` for plain CRUD, `agent-chat` for agent work.
+- UI reads and writes through the feature's `*.queries.ts`.
+- A feature imports only another feature's `*.schema.ts`. Routes compose UI from several features.
+- Database definitions live in `supabase/schemas/<owner>/`. Copy the account access pattern.
 - Keep feature tests, including E2E, in the feature directory.
 - Prefer meaningful E2E and integration tests over trivial unit tests.
-- Run `pnpm verify --base <branch base>` before reporting completion and fix every failure.
+- Before reporting completion, run `pnpm check:fast`, `pnpm typecheck`, and the changed features' tests, and fix every failure.
 ```
 
 ### Agent workflow
@@ -1171,11 +1207,15 @@ After a lost response at any step, inspect the migration history or the deployed
 3. Reuse existing contracts, components, and platform modules.
 4. Change code within the dependency rules.
 5. Add or update a meaningful test for the changed behavior.
-6. Run `pnpm verify` and fix every failure.
+6. Run the completion checks and fix every failure.
 7. Exercise the affected user journey.
 8. Report anything unresolved instead of claiming completion.
 
-When agents repeat a mistake, first improve the reference implementation, then add a mechanical check, and only then add a line to `AGENTS.md`.
+When agents repeat a mistake, first improve the reference implementation. Then add the rule to `policy.ts` with a check and a negative fixture, or move an existing `review` rule to a mechanical check. Add a line to `AGENTS.md` only for a rule no check can express.
+
+### Generated `ARCHITECTURE.md`
+
+The generated app never ships this specification. Its `ARCHITECTURE.md` is rendered from `policy.ts` by `pnpm gen:architecture` and holds three tables: [File roles and ownership](#file-roles-and-ownership), the [dependency allowlist](#dependency-rules) with its package lists, and [Rule checks](#rule-checks). Each rule sits next to the check that enforces it. `check-repo.ts` fails when the committed file differs from a fresh render, so the document an agent reads always matches the checks it runs against. Feature design that no rule captures lives in the reference implementations and their tests.
 
 ### Bundled skills
 
@@ -1187,34 +1227,36 @@ Each extension below was designed and kept out of the MVP. When its trigger appe
 
 | Extension | Trigger | What it adds |
 |---|---|---|
-| Non-pure tools | A tool needs network, storage, or any external side effect | A journaled effect per tool call with a declared class: `idempotent` (with the provider's replay window and a key derived from the effect ID) or `irreversible`. Single-sender authorization per effect. An `external_outcome_unknown` failure that blocks unsafe retry. An operator resolution routine. |
-| Pruning and tombstones | Task data pressures storage | A scheduled routine that deletes send outcomes and steps after a documented lifetime and keeps receipts as tombstones, so replays still return their original answer |
+| Non-pure tools | A tool needs network, storage, or any external side effect | Each effect runs in its own Workflow step with a declared class: `idempotent` (with the provider's replay window and a key derived from the run, step, and call IDs) or `irreversible`. An `external_outcome_unknown` failure that blocks unsafe retry. An operator resolution routine. |
+| Pruning | Run data pressures storage | A scheduled routine that deletes old conversations' runs and turns after a documented lifetime |
 | Environment reconciliation | More than one person or runner deploys to shared environments | `env:reconcile` with an operation journal keyed by environment, operation, and desired digest; database-scoped migration locks; exclusive leases on shared nonproduction targets with quiescence checks |
 | Waiting queue | Users should wait for capacity instead of being refused | A separately bounded queue with explicit admission semantics |
-| In-application accounting | The product must bill or meter inside the app | A ledger that reads gateway usage. The gateway stays the enforcement point. |
-| Real-time updates | Polling latency or cost becomes a problem | Supabase Realtime subscriptions in `*.queries.ts`, replacing polling for task detail |
+| Live updates | Users need to see an answer as it is written, or polling cost becomes a problem | The model step streams the provider response and sends the full text so far, plus a change notice after each commit, to the owner's private Supabase Realtime Broadcast channel. Nothing live is stored. A Realtime Authorization policy admits only the owner. Messages per model call stay below the Worker subrequest limit, or go over one outbound WebSocket per step. |
+| Spend accounting | The product must cap, bill, or meter model spend per user | A per-user token and cost ledger fed by the usage that `commit_step` records, plus a record of model calls that retries repeated |
+| Email sign-in | Users without a Google account must sign in, and the developer owns a domain | Resend SMTP on the verified domain in `[auth.email.smtp]`, `[auth.email] enable_signup = true`, and one email holding a magic link and a 6-digit code. An `/auth/confirm` route verifies the link. `/login` gains an email field and a code field. Supabase Auth rate limits rise to match the Resend plan. |
+| Branded consent | The Google consent screen must name the app instead of `<project-ref>.supabase.co` | Google brand verification on a domain the developer owns, or a Supabase custom domain used as the client's Supabase URL |
 
 ## Build order
 
 Build in these units. Each unit's checks pass before the next unit depends on it.
 
-1. **Foundations.** Project setup, pinned tooling, `architecture/policy.ts`, Oxlint and anti-slop, dependency-cruiser, the bundle check, the positive and negative architecture fixtures, and an empty app that builds. Gate: every fixture yields its expected result.
-2. **Auth, account, and database pattern.** Supabase config, auth flows, the account feature with its schemas, roles, routines, and grants. Gate: auth and account E2E, and the two-user access tests.
-3. **Agent Turns.** Turn schemas and SQL, block parsing, size caps, rate window, UI, and the `insert_agent_turn` grant boundary. Gate: turns E2E, same-key race, and the catalog grant test.
-4. **Agent Tasks persistence and model.** Task tables and routines, fencing, lock order, slots, submission, `decide`, `buildPrompt`, the timing test, the classifier with gateway fixtures, and the `calculate` tool. Gate: every required proof that does not need a Workflow.
-5. **Durable execution.** The Workflow adapter, the runner, the reconciler, `src/server.ts` wiring, and `wrangler.jsonc`. Gate: dispatch and recovery proofs and the tasks E2E.
-6. **Shell, CI, and deployment.** App shell polish, `ci.yml`, `deploy.yml`, manifests, `verify:deployed`, `AGENTS.md`, and bundled skills. Gate: a deployed environment passes `verify:deployed`, including the live gateway smoke test.
+1. **Foundations.** Project setup, pinned tooling, `tools/boundary-enforcement/` with the policy and its rule checks, Oxlint with anti-slop and the repo-owned lint rules, dependency-cruiser, the bundle check, `check-repo.ts`, `generate-architecture.ts`, `platform/mutations.ts`, the positive and negative fixtures, and an empty app that builds. Gate: every fixture yields its expected result, and every mechanically checked rule has a negative fixture.
+2. **Auth, account, and database pattern.** Auth configuration, Google sign-in, the callback route, test sign-in, the account feature with its schemas, roles, routines, and grants. Gate: auth and account E2E, and the two-user access tests.
+3. **Agent Chat persistence and model.** Conversation, run, and turn tables and routines, admission, the agent-turn write boundary, block parsing and `blocksFromAgentItems`, the agent definition and `calculate`, `toAgentInput`, the checks, the model provider and error classification, and the constants test. Gate: every required proof that needs no Workflow.
+4. **Durable execution.** The Workflow adapter and `DurableModel`, the runner, the sweep, the chat UI, `src/server.ts` wiring, and `wrangler.jsonc`. Gate: the dispatch, replay, recovery, and stop proofs, and the chat E2E.
+5. **Shell, CI, and deployment.** App shell polish, `ci.yml`, `deploy.yml`, Wrangler environments, `verify:deployed`, `AGENTS.md`, the generated `ARCHITECTURE.md`, and bundled skills. Gate: a deployed environment passes `verify:deployed`, including the live provider smoke test.
 
 ## Acceptance criteria
 
 The template is complete when all of these hold:
 
 - Authentication and account management work end to end.
-- Protected routes, server authorization, and RLS are verified, including two-user denial tests.
-- Agent Turns create, persist, and exhaustively render every block kind, including the unsupported fallback.
-- Agent Tasks run through Cloudflare Workflows, call a tool, persist a transcript, and complete, cancel, and fail as specified.
+- Protected routes, actor resolution, and SQL ownership checks are verified, including two-user denial tests.
+- Agent Chat runs every message as a durable OpenAI Agents SDK run on Cloudflare Workflows, with every model call as a step. Runs call a tool, persist a transcript, show each step as it is saved, continue after the tab closes, and complete, stop, and fail as specified. Every block kind renders, including the unsupported fallback.
 - Every row in [Required proofs](#required-proofs) has a passing test.
 - Every architecture fixture yields its expected result, and the bundle check finds no server code in client chunks.
+- Every rule in [Rule checks](#rule-checks) has its named check or proof, and every mechanically checked rule has a negative fixture.
+- The committed `ARCHITECTURE.md` matches a fresh render of `policy.ts`, and the template does not ship this specification.
 - Declarative SQL is grouped by owner under `supabase/schemas/`, and migrations replay from Git into an empty database.
 - `pnpm check` passes in CI.
 - A deployed environment passes `pnpm verify:deployed`.
@@ -1223,12 +1265,22 @@ The template is complete when all of these hold:
 
 ## Open feasibility checks
 
-These questions need evidence from the pinned versions before their unit's gate. If a check fails, change the implementation and record the change in this document. Never weaken acceptance, cancellation, fencing, or ownership rules to fit a limit.
+These questions need evidence from the pinned versions before their unit's gate. If a check fails, change the implementation and record the change in this document. Never weaken acceptance, cancellation, idempotency, or ownership rules to fit a limit.
 
-- Does the pinned TanStack Start build expose a client chunk graph the bundle check can trust, and what is its Cloudflare server-entry API?
-- Does the chosen gateway enforce per-key and per-user budgets, return error bodies that separate budget, rate-limit, and policy refusals, and forward traces with task, step, and send metadata to Langfuse? Record its fixtures for `agent-tasks.model.test.ts`.
-- Where does the gateway run, given that LiteLLM does not run on Workers, and does that host fit the MVP's cost target?
-- Do Cloudflare's step `timeout` and `retries` settings accept the defaults for `T` and `STEP_RETRIES`? What is the current `WORKFLOW_STEP_LIMIT`? How late do Workflow wakes run in practice compared with `A`?
-- Does the Workers Free CPU limit hold for parsing a 256 KB response and running `buildPrompt` on a full history?
-- Does the hosted Supabase `postgres` role allow creating the `nologin` feature roles, granting them to `postgres`, and transferring function ownership as written?
-- Do the free plans handle the CPU, cron schedule, storage, step counts, and CI workload for the reference journeys? Record run counts, spread, and the limiting resource for every measurement.
+- Does the pinned TanStack Start build expose a client chunk graph the bundle check can trust, and what is its Cloudflare server-entry API? Does it strip a server route's `handlers`, including their `platform/auth.server.ts` import, from client chunks?
+- Does the pinned Oxlint run repo-owned JS plugin rules that inspect `className` strings, type-assertion targets, and member access on `env`? If not, run those rules in a separate pass with the TypeScript compiler API and keep them in `tools/boundary-enforcement/lint-rules/`.
+- Do the chosen provider's error bodies separate quota, rate-limit, and policy refusals? Record its fixtures for `src/platform/model.server.test.ts`.
+- How long does a run take from `sendMessage` to its first saved step? Record the Workflow start time separately from the model call time.
+- Does the pinned `@openai/agents` run in a Worker with `nodejs_compat` and against an OpenAI-compatible Chat Completions endpoint? Does `new Runner({ model, tracingDisabled: true })` accept a custom `Model` and turn off every trace export?
+- Is the SDK loop deterministic on replay? It must make the same model calls in the same order, given the same saved responses, with no random or time-based input that changes the order.
+- Can a `ModelResponse` round-trip through JSON as a step result, including `usage`, and does the SDK expose the Chat Completions finish reason so `checkResponse` can detect truncation?
+- How does the pinned SDK count `maxTurns`, and how does it handle tool arguments that are not valid JSON? The spec assumes they become a tool error the model can read.
+- Does `create` with an existing instance ID fail with an error `WorkflowRuns.start` can recognize?
+- After a step's retries run out, does `step.do` rethrow the last attempt's error? Does a step timeout surface as a retryable error?
+- Does the Workers Free CPU limit for Workflow steps (10 ms per step at the time of writing) hold for replaying the SDK loop and parsing a 256 KB response?
+- Can Vitest with `@cloudflare/vitest-pool-workers` run the Workflow and the provider double with crash and failure injection?
+- Does the hosted Supabase `postgres` role allow creating the `nologin` committer role, granting it to `postgres`, and transferring function ownership as written?
+- Does `supabase config push` apply the `[remotes.<environment>]` Auth overrides and resolve the Google `env()` values? If not, `deploy.yml` sets the same values through the Supabase Management API auth config endpoint.
+- Does `auth.signInWithPassword` succeed for an admin-created user while `[auth.email] enable_signup = false`?
+- Does `startGoogleSignIn` through `@supabase/ssr` on Workers store the PKCE verifier cookie that `/auth/callback` reads?
+- Do the free plans handle the CPU, Workflow concurrency, cron schedule, storage, step counts, and CI workload for the reference journeys? Record run counts, spread, and the limiting resource for every measurement.

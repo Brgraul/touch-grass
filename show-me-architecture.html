@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Template Architecture Map</title>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --surface: #ffffff;
+    --text: #1d1f1c;
+    --muted: #5f655c;
+    --border: #e2e0d8;
+    --accent: #2f7d4f;
+    --code-bg: #f3f2ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141613;
+      --surface: #1c1f1b;
+      --text: #e8eae4;
+      --muted: #9ca394;
+      --border: #2e332c;
+      --accent: #6cc28f;
+      --code-bg: #232722;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141613;
+    --surface: #1c1f1b;
+    --text: #e8eae4;
+    --muted: #9ca394;
+    --border: #2e332c;
+    --accent: #6cc28f;
+    --code-bg: #232722;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 40px 16px 80px; }
+  h1 { font-size: 1.75rem; margin: 0 0 6px; }
+  .lede { color: var(--muted); margin: 0 0 32px; }
+  section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  h2 { font-size: 1.1rem; margin: 0 0 4px; }
+  h2 span { color: var(--accent); margin-right: 6px; }
+  .note { color: var(--muted); font-size: 0.92rem; margin: 0 0 14px; }
+  .diagram { overflow-x: auto; }
+  .diagram svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+  pre {
+    margin: 0;
+    background: var(--code-bg);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font: 13.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace; }
+  table.compare { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+  .compare th, .compare td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--border); }
+  .compare thead th { border-top: none; color: var(--muted); font-weight: 600; }
+  .compare tbody th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+  @media (max-width: 560px) { .compare th, .compare td { padding: 6px; font-size: 0.88rem; } .compare tbody th { white-space: normal; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>How the template works</h1>
+  <p class="lede">How the app is put together, and what happens when someone sends the agent a message, whether the answer takes five seconds or five hours.</p>
+
+  <section>
+    <h2><span>1</span>Who talks to whom</h2>
+    <p class="note">Each kind of file has one job and may only call certain others. A checker fails the build when code breaks these rules. Features stay separate: one feature may borrow another's type definitions and nothing else.</p>
+    <div class="diagram" data-src="layers"></div>
+  </section>
+
+  <section>
+    <h2><span>2</span>One runtime for every message</h2>
+    <p class="note">Every chat message starts a run in the background. The OpenAI Agents SDK runs the agent loop, Cloudflare Workflows saves each AI call as a step, and the database keeps the record. The browser only watches, and checks for new steps every 2 seconds while a run is active. Closing the tab never stops a run.</p>
+    <div class="diagram" data-src="parts"></div>
+  </section>
+
+  <section>
+    <h2><span>3</span>What happens when you send a message</h2>
+    <p class="note">Your message is saved and the run starts right away. If the start fails, a check that runs every minute starts it instead.</p>
+    <div class="diagram" data-src="sequence"></div>
+  </section>
+
+  <section>
+    <h2><span>4</span>How you see progress</h2>
+    <p class="note">The page shows whole steps, not words as they're typed. That keeps the system simple: nothing is pushed to the browser, so there's no live channel to secure or keep in sync.</p>
+<table class="compare">
+      <thead><tr><th></th><th>What you see</th></tr></thead>
+      <tbody>
+        <tr><th>While it works</th><td>"Working", the step count, and a stop button</td></tr>
+        <tr><th>After each step</th><td>the step's text, tool calls, and tool results, within about 2 seconds</td></tr>
+        <tr><th>After a reload</th><td>everything saved so far; the run keeps going</td></tr>
+        <tr><th>When it ends</th><td>the final answer, or why it failed, with a send-again button</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2><span>5</span>What the app adds around each AI call</h2>
+    <p class="note">The SDK decides what to do next. The app wraps each AI call so it becomes a saved step, and checks a few limits around it.</p>
+<pre>Before each AI call:
+  Save the previous step as an AI message (skipped for the first call)
+  Run stopped or already over?         → stop
+  Out of time?                         → fail the run
+  Already at the step limit?           → fail the run
+
+The AI call itself (a saved Workflow step):
+  "Try again later" or no answer?      → Workflows retries, up to 3 calls in total
+  The AI refused for good?             → fail the run
+  Too many tool calls, or too long?    → fail the run
+  Otherwise                            → hand the answer back to the SDK
+
+When the SDK says the answer is final:
+  Save the last step and mark the run completed</pre>
+  </section>
+
+  <section>
+    <h2><span>6</span>The life of a run</h2>
+    <p class="note">A run only moves forward. Once it's completed, failed, or stopped, it never changes again. If two endings happen at the same moment, the first one saved wins.</p>
+    <div class="diagram" data-src="states"></div>
+  </section>
+
+  <section>
+    <h2><span>7</span>Why a crash doesn't break anything</h2>
+    <p class="note">After a crash, Workflows runs the SDK loop again from the top. Every AI call that already finished returns its saved answer instead of asking the AI again, and the tools give the same results, so the loop lands in the same place. Saving a step twice is harmless, because the database keeps one message per step number.</p>
+<pre>run (one per message; its ID is the run ID)
+├─ start       ✓ saved   (includes the conversation so far)
+├─ ask AI #1   ✓ saved
+├─ save #1     ✓ saved   → AI message 1 in the chat
+├─ ask AI #2   ✗ crashed halfway
+│
+└─ after the crash, the SDK loop runs again
+   ├─ start, ask AI #1, save #1   answers come back from what Workflows saved
+   ├─ ask AI #2                   asked again (this call may be paid for twice)
+   └─ save #2                     → AI message 2 in the chat
+
+If the whole run is lost, the every-minute check fails it
+5 minutes after its deadline, so nothing stays "running" forever.</pre>
+  </section>
+
+  <section>
+    <h2><span>8</span>Only one door lets AI messages in</h2>
+    <p class="note">The database enforces this itself, not only the app code. Only the step-saving function can write an AI message. Even the app's admin key can't write one directly. Your messages are plain text stored on the run, so nobody can sneak a fake tool result into what the AI reads later. Database tests prove each rule.</p>
+    <div class="diagram" data-src="grants"></div>
+  </section>
+</main>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs';
+
+  const sources = {
+    layers: `flowchart LR
+  subgraph Browser
+    route["Pages<br/>routes/*.tsx"] --> ui["Components<br/>ui/*.tsx"]
+    route --> q["Data loading<br/>*.queries.ts"]
+    ui --> q
+  end
+  q -->|calls the server| fn["Server endpoints<br/>*.functions.ts<br/>checks who you are"]
+  subgraph Server
+    fn --> svc["Business logic<br/>*.service.server.ts"]
+    svc --> pure["Rules, tools, agent<br/>*.model.ts, *.tools.ts, *.agent.ts<br/>no network, no database"]
+    svc --> repo["Database calls<br/>*.repo.server.ts"]
+    wf["Background run<br/>*.workflow.server.ts"] --> svc
+    root["src/server.ts<br/>connects everything"] -.starts.-> wf
+    svc --> plat["Platform<br/>model provider"]
+  end
+  repo --> db[("Postgres database")]`,
+
+    parts: `flowchart TD
+  browser["Browser"]
+  app["App server"]
+  subgraph WF["Cloudflare Workflows run"]
+    sdk["OpenAI Agents SDK loop<br/>asks the AI, runs tools"]
+    steps["Saved steps<br/>one per AI call, one per save"]
+    sdk <--> steps
+  end
+  db[("Postgres<br/>conversations, runs, AI messages")]
+  llm["AI provider"]
+  cron["Every-minute check"]
+  browser -->|"send, stop, check every 2 s"| app
+  app -->|save message, check limits, read steps| db
+  app -->|start run| WF
+  steps -->|ask| llm
+  steps -->|save each step| db
+  cron -.->|restarts or fails stuck runs| WF`,
+
+    sequence: `sequenceDiagram
+  participant B as Browser
+  participant S as App server
+  participant PG as Database
+  participant W as Run (Workflows)
+  participant L as AI provider
+  B->>S: Send "hello" (with a request key)
+  S->>PG: Save it as a run, if you're under your limits
+  S--)W: Start the run
+  S-->>B: Run accepted
+  loop Until the SDK says the answer is final
+    W->>L: Ask the AI (a saved step)
+    L-->>W: Answer, or a request to use a tool
+    opt The AI asked for a tool
+      W->>W: Run the tool (for example calculate)
+    end
+    W->>PG: Save the step as an AI message
+  end
+  loop Every 2 seconds while the run is active
+    B->>S: Any new steps?
+    S->>PG: Read the conversation
+    S-->>B: Saved steps so far
+  end
+  Note over B,L: Tab closed? The run keeps going. Reopen to see where it stands.`,
+
+    states: `stateDiagram-v2
+  direction LR
+  [*] --> queued: message saved
+  queued --> running: run starts
+  queued --> failed
+  queued --> canceled
+  running --> completed: final answer saved
+  running --> failed: hit a limit or an error
+  running --> canceled: you pressed stop
+  completed --> [*]
+  failed --> [*]
+  canceled --> [*]`,
+
+    grants: `flowchart TD
+  browser["Browser"] -->|"plain text only"| submit["Save your message as a run<br/>submit_message"]
+  server["App server<br/>admin key"] --> commit["Save a step<br/>commit_step"]
+  submit --> runs[("Runs table")]
+  commit --> turns[("AI messages table")]
+  server -. "direct insert blocked ✗" .-> turns
+  linkStyle 4 stroke:#c0392b,stroke-dasharray:5 5`
+  };
+
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'neutral', securityLevel: 'loose' });
+
+  let i = 0;
+  for (const el of document.querySelectorAll('[data-src]')) {
+    const { svg } = await mermaid.render(`d${i++}`, sources[el.dataset.src]);
+    el.innerHTML = svg;
+  }
+</script>
+</body>
+</html>
