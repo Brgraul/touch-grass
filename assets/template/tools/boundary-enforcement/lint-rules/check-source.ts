@@ -3,6 +3,8 @@ import { join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { brandNames, compositionRoot, ignoredDirectories, isPure, roleOf, type Diagnostic } from '../policy.ts';
+import { createEnvironmentTypes } from './environment.ts';
+import { createResolver, leafOf, moduleOf, moduleSpecifierOf, propertyKey } from './resolve.ts';
 
 const pureGlobals = new Set(['fetch', 'caches', 'XMLHttpRequest', 'WebSocket', 'navigator', 'localStorage', 'sessionStorage', 'process', 'globalThis', 'performance', 'setTimeout', 'setInterval', 'queueMicrotask', 'crypto']);
 
@@ -45,9 +47,22 @@ function hasRawColor(text: string): boolean {
   });
 }
 
+const transportNames = new Set(['fetch', 'XMLHttpRequest', 'WebSocket']);
+
+const clockOrigins = new Set(['global:Date.now', 'global:Math.random']);
+
+const providers = new Set(['OpenAI', 'OpenAIProvider', 'OpenAIChatCompletionsModel', 'OpenAIResponsesModel', 'OpenAIResponsesWSModel']);
+
+// Calls that install a model provider or its credentials for every agent, which only the model adapter may do.
+const providerConfiguration = new Set(['setDefaultOpenAIClient', 'setDefaultOpenAIKey', 'setOpenAIAPI', 'setDefaultModelProvider']);
+
+const modelAdapter = 'src/platform/model.server.ts';
+
+const reactQueryMutation = 'import:@tanstack/react-query#useMutation';
+
 export function checkSource(path: string, source: string): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
-  const parsed = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, path.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const kind = path.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
   const syntax = ts.transpileModule(source, { fileName: path, reportDiagnostics: true, compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).diagnostics ?? [];
 
   for (const diagnostic of syntax) {
@@ -55,10 +70,14 @@ export function checkSource(path: string, source: string): Diagnostic[] {
   }
 
   if (diagnostics.length > 0) return diagnostics;
+  const resolver = createResolver(path, source, kind);
+  const environment = createEnvironmentTypes(resolver);
+  const parsed = resolver.parsed;
   const role = roleOf(path);
   const pure = isPure(path);
   const view = ['route', 'ui', 'layouts', 'components'].some(candidate => candidate === role);
   const importedNames = new Set<string>();
+  const foldedColors: ts.Node[] = [];
 
   for (const statement of parsed.statements) {
     if (!ts.isImportDeclaration(statement) || !statement.importClause) continue;
@@ -69,13 +88,9 @@ export function checkSource(path: string, source: string): Diagnostic[] {
     if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) importedNames.add(element.name.text);
   }
 
-  const providers = new Set(['OpenAI', 'OpenAIProvider', 'OpenAIChatCompletionsModel']);
-
   const report = (rule: string, node: ts.Node, message: string) => {
     diagnostics.push({ rule, path, message, line: parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1 });
   };
-
-  const isEnvironment = (node: ts.Node) => ts.isIdentifier(node) && node.text === 'env' || ts.isPropertyAccessExpression(node) && node.name.text === 'env';
 
   const environmentField = (node: ts.Node, field: string) => {
     if (!path.startsWith('src/') || /\.(?:test|spec)\.tsx?$/.test(path) || path === 'src/platform/env.server.ts') return;
@@ -84,63 +99,96 @@ export function checkSource(path: string, source: string): Diagnostic[] {
     report('env-access', node, `Environment field ${field} is read outside its owner`);
   };
 
+  const checkModule = (node: ts.Node, name: string) => {
+    if (pure && /^(?:node:|cloudflare:)|\.server(?:\.ts)?$/.test(name)) report('pure-module', node, `Pure module imports runtime ${name}`);
+
+    if ((name === 'openai' || name.startsWith('openai/')) && path !== modelAdapter) report('model-adapter', node, 'Only the model adapter imports openai');
+  };
+
+  // `origin` is where the referenced value comes from after following aliases, so `const f = fetch` and `{ random } = Math` still resolve.
+  const checkReference = (node: ts.Node, origin: string) => {
+    const globalName = origin.startsWith('global:') ? origin.slice('global:'.length) : undefined;
+
+    if (view && globalName !== undefined && transportNames.has(globalName)) report('client-data-path', node, 'Views use feature queries rather than direct transport');
+
+    if (origin === reactQueryMutation && path !== 'src/platform/mutations.ts') report('client-data-path', node, 'Only platform/mutations.ts calls useMutation');
+
+    if (pure && globalName !== undefined && (clockOrigins.has(origin) || pureGlobals.has(globalName))) report('pure-module', node, `Pure module accesses ${globalName}`);
+
+    if (path !== modelAdapter && moduleOf(origin)?.startsWith('@openai/') && providerConfiguration.has(leafOf(origin))) report('model-adapter', node, 'Only the model adapter configures the model provider');
+  };
+
+  const checkCall = (node: ts.CallExpression) => {
+    const callee = node.expression;
+    const origin = resolver.originOf(callee);
+    const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : '';
+
+    if (pure && origin === 'global:Date') report('pure-module', node, 'Pure module reads the current date');
+
+    if (view && ts.isPropertyAccessExpression(callee) && origin === undefined && transportNames.has(name)) report('client-data-path', node, 'Views use feature queries rather than direct transport');
+
+    if (origin !== reactQueryMutation && (origin === undefined ? name : leafOf(origin)) === 'useMutation' && path !== 'src/platform/mutations.ts') report('client-data-path', node, 'Only platform/mutations.ts calls useMutation');
+
+    if (name === 'signInWithPassword' && path !== 'tests/fixtures/test-users.ts') report('test-sign-in', node, 'Only the test-user fixture performs password sign-in');
+  };
+
+  const checkConstruction = (node: ts.NewExpression) => {
+    const origin = resolver.originOf(node.expression);
+
+    if (pure && origin === 'global:Date' && (node.arguments?.length ?? 0) === 0) report('pure-module', node, 'Pure module reads the current date');
+
+    if (origin !== undefined && providers.has(leafOf(origin)) && path !== modelAdapter) report('model-adapter', node, 'Only the model adapter constructs a provider');
+  };
+
+  const checkEnvironment = (node: ts.Node) => {
+    if (ts.isPropertyAccessExpression(node) && environment.isEnvironment(node.expression)) environmentField(node, node.name.text);
+
+    if (ts.isElementAccessExpression(node) && environment.isEnvironment(node.expression)) environmentField(node, node.argumentExpression.getText(parsed).replace(/['"]/g, ''));
+
+    if ((ts.isVariableDeclaration(node) || ts.isParameter(node)) && ts.isObjectBindingPattern(node.name) && environment.readsEnvironment(node)) {
+      for (const element of node.name.elements) environmentField(element, propertyKey(element.propertyName ?? element.name) ?? element.getText(parsed));
+    }
+  };
+
+  const checkStyling = (node: ts.Node) => {
+    const concatenation = ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken || ts.isTemplateExpression(node) || ts.isCallExpression(node);
+
+    if (concatenation && !foldedColors.some(root => root.pos <= node.pos && node.end <= root.end) && resolver.stringValues(node)?.some(hasRawColor)) {
+      foldedColors.push(node);
+      report('styling', node, 'Use theme-token colors instead of raw colors');
+    }
+
+    const classText = ts.isStringLiteralLike(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node) ? node.text : undefined;
+
+    if (classText !== undefined && hasRawColor(classText) && !foldedColors.some(root => root.pos <= node.pos && node.end <= root.end)) report('styling', node, 'Use theme-token colors instead of raw colors');
+
+    if (ts.isJsxAttribute(node) && node.name.getText(parsed) === 'style' && node.initializer) {
+      const value = ts.isJsxExpression(node.initializer) ? node.initializer.expression : node.initializer;
+
+      if (value && (ts.isStringLiteralLike(value) || ts.isObjectLiteralExpression(value) && value.properties.some(property => ts.isPropertyAssignment(property) && (ts.isStringLiteralLike(property.initializer) || ts.isNumericLiteral(property.initializer))))) report('styling', node, 'Inline style values must be computed at runtime');
+    }
+  };
+
   const visit = (node: ts.Node) => {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-      const name = node.moduleSpecifier.text;
+    const name = moduleSpecifierOf(node);
 
-      if (pure && /^(?:node:|cloudflare:)|\.server(?:\.ts)?$/.test(name)) report('pure-module', node, `Pure module imports runtime ${name}`);
+    if (name !== undefined) checkModule(node, name);
 
-      if (name === 'openai' || name.startsWith('openai/')) {
-        if (path !== 'src/platform/model.server.ts') report('model-adapter', node, 'Only the model adapter imports openai');
-      }
+    if (ts.isIdentifier(node) && resolver.isReference(node) || ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      const origin = resolver.originOf(node);
 
-      if (node.importClause?.namedBindings && ts.isNamedImports(node.importClause.namedBindings)) {
-        for (const imported of node.importClause.namedBindings.elements) {
-          if (providers.has((imported.propertyName ?? imported.name).text)) providers.add(imported.name.text);
-        }
-      }
+      if (origin !== undefined) checkReference(node, origin);
     }
 
-    if (pure && ts.isIdentifier(node) && pureGlobals.has(node.text)) {
-      const propertyName = ts.isPropertyAccessExpression(node.parent) && node.parent.name === node;
-      const declarationName = (ts.isPropertySignature(node.parent) || ts.isPropertyAssignment(node.parent)) && node.parent.name === node;
+    if (ts.isCallExpression(node)) checkCall(node);
 
-      if (!propertyName && !declarationName) report('pure-module', node, `Pure module accesses ${node.text}`);
-    }
+    if (ts.isNewExpression(node)) checkConstruction(node);
 
-    if (pure && ts.isPropertyAccessExpression(node)) {
-      if (node.expression.getText(parsed) === 'Date' && node.name.text === 'now' || node.expression.getText(parsed) === 'Math' && node.name.text === 'random') report('pure-module', node, `Pure module accesses ${node.getText(parsed)}`);
-    }
+    if ((ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node) || ts.isMethodDeclaration(node) || ts.isGetAccessorDeclaration(node)) && propertyKey(node.name) === 'queryFn' && role !== 'queries' && path.startsWith('src/')) report('client-data-path', node, 'queryFn belongs in a queries module');
 
-    if (pure && ts.isNewExpression(node) && node.expression.getText(parsed) === 'Date' && (node.arguments?.length ?? 0) === 0) report('pure-module', node, 'Pure module reads the current date');
+    if (ts.isPropertyAccessExpression(node) && node.name.text === 'admin' && /(?:^|\.)auth$/.test(node.expression.getText(parsed)) && path !== 'tests/fixtures/test-users.ts') report('test-sign-in', node, 'Only the test-user fixture accesses auth.admin');
 
-    if (ts.isCallExpression(node)) {
-      const name = ts.isIdentifier(node.expression) ? node.expression.text : ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : '';
-
-      if (view && ['fetch', 'XMLHttpRequest', 'WebSocket'].includes(name)) report('client-data-path', node, 'Views use feature queries rather than direct transport');
-
-      if (name === 'useMutation' && path !== 'src/platform/mutations.ts') report('client-data-path', node, 'Only platform/mutations.ts calls useMutation');
-
-      if (name === 'signInWithPassword' && path !== 'tests/fixtures/test-users.ts') report('test-sign-in', node, 'Only the test-user fixture performs password sign-in');
-    }
-
-    if (view && ts.isNewExpression(node) && ['XMLHttpRequest', 'WebSocket'].includes(node.expression.getText(parsed))) report('client-data-path', node, 'Views cannot construct transports');
-
-    if ((ts.isPropertyAssignment(node) || ts.isMethodDeclaration(node)) && node.name.getText(parsed).replace(/['"]/g, '') === 'queryFn' && role !== 'queries' && path.startsWith('src/')) report('client-data-path', node, 'queryFn belongs in a queries module');
-
-    if (ts.isNewExpression(node) && providers.has(node.expression.getText(parsed)) && path !== 'src/platform/model.server.ts') report('model-adapter', node, 'Only the model adapter constructs a provider');
-
-    if (ts.isPropertyAccessExpression(node)) {
-      if (isEnvironment(node.expression)) environmentField(node, node.name.text);
-
-      if (node.name.text === 'admin' && /(?:^|\.)auth$/.test(node.expression.getText(parsed)) && path !== 'tests/fixtures/test-users.ts') report('test-sign-in', node, 'Only the test-user fixture accesses auth.admin');
-    }
-
-    if (ts.isElementAccessExpression(node) && isEnvironment(node.expression)) environmentField(node, node.argumentExpression.getText(parsed).replace(/['"]/g, ''));
-
-    if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) && node.initializer && isEnvironment(node.initializer)) {
-      for (const element of node.name.elements) environmentField(element, (element.propertyName ?? element.name).getText(parsed));
-    }
+    checkEnvironment(node);
 
     if ((ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) && !/^src\/platform\/|\.(?:schema|repo\.server)\.ts$/.test(path)) {
       if (brandNames.some(brand => new RegExp(`\\b${brand}\\b`).test(node.type.getText(parsed)))) report('brand-cast', node, 'Obtain branded values from their owning parser');
@@ -152,15 +200,7 @@ export function checkSource(path: string, source: string): Diagnostic[] {
       if (node.moduleSpecifier || importedExport) report('no-reexport', node, 'Re-export statements create forbidden barrel modules');
     }
 
-    const classText = ts.isStringLiteralLike(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node) ? node.text : undefined;
-
-    if (view && classText !== undefined && hasRawColor(classText)) report('styling', node, 'Use theme-token colors instead of raw colors');
-
-    if (view && ts.isJsxAttribute(node) && node.name.getText(parsed) === 'style' && node.initializer) {
-      const value = ts.isJsxExpression(node.initializer) ? node.initializer.expression : node.initializer;
-
-      if (value && (ts.isStringLiteralLike(value) || ts.isObjectLiteralExpression(value) && value.properties.some(property => ts.isPropertyAssignment(property) && (ts.isStringLiteralLike(property.initializer) || ts.isNumericLiteral(property.initializer))))) report('styling', node, 'Inline style values must be computed at runtime');
-    }
+    if (view) checkStyling(node);
 
     ts.forEachChild(node, visit);
   };

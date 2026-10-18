@@ -3,12 +3,14 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
-import { browserPackages, browserTransitivePackages, bundleSentinel, privateEnvironmentNames, type Diagnostic } from './policy.ts';
+import { browserClosure } from './browser-closure.ts';
+import { browserPackages, bundleSentinel, privateEnvironmentNames, type Diagnostic } from './policy.ts';
 
 const graphSchema = z.object({ version: z.literal(1), chunks: z.array(z.object({ fileName: z.string(), modules: z.array(z.string()) })).min(1) });
 
-export function checkClientChunks(root: string): Diagnostic[] {
+export function checkClientChunks(root: string, project = process.cwd()): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
+  const closure = browserClosure(project);
   const graph = graphSchema.parse(JSON.parse(readFileSync(join(root, 'client-module-graph.json'), 'utf8')));
   const examined = new Set<string>();
   const report = (path: string, message: string) => diagnostics.push({ rule: 'client-reachability', path, message });
@@ -25,7 +27,7 @@ export function checkClientChunks(root: string): Diagnostic[] {
       if (dependency && dependency !== normalized && !dependency.startsWith('.vite/')) {
         const parts = dependency.split('/');
         const name = parts[0]?.startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0];
-        const approved = name === 'zod' || browserPackages.some(allowed => allowed === name) || browserTransitivePackages.some(allowed => allowed === name);
+        const approved = name === 'zod' || browserPackages.some(allowed => allowed === name) || closure.has(name);
 
         if (!approved) report(chunk.fileName, `Server package emitted in browser chunk: ${name}`);
       }

@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { checkSource } from './lint-rules/check-source.ts';
 import { baselineMigrations, checkRepoFiles } from './check-repo.ts';
 import { checkBoundaries } from './check-boundaries.ts';
+import { browserClosure } from './browser-closure.ts';
 import { checkClientChunks } from './check-client-bundle.ts';
 import { fixtureExpectations, renderArchitecture, rules, type Diagnostic } from './policy.ts';
 
@@ -18,7 +19,7 @@ const fixtureSchema = z.discriminatedUnion('kind', [
   z.object({ id: z.string(), kind: z.literal('source'), path: z.string(), source: z.string(), expected: expectedSchema }),
   z.object({ id: z.string(), kind: z.literal('repo'), files: z.record(z.string(), z.union([z.string(), z.null(), manifestPatchSchema])), expected: expectedSchema }),
   z.object({ id: z.string(), kind: z.literal('edge'), files: z.record(z.string(), z.string()), expected: expectedSchema }),
-  z.object({ id: z.string(), kind: z.literal('bundle'), modules: z.array(z.string()), source: z.string(), expected: expectedSchema }),
+  z.object({ id: z.string(), kind: z.literal('bundle'), modules: z.array(z.string()), source: z.string(), graph: z.record(z.string(), z.array(z.string())).optional(), direct: z.array(z.string()).optional(), expected: expectedSchema }),
 ]);
 
 const fixtures = z.array(fixtureSchema).parse(JSON.parse(readFileSync(new URL('./fixtures/cases.json', import.meta.url), 'utf8')));
@@ -36,6 +37,22 @@ function temporaryDirectory() {
   directories.push(path);
 
   return path;
+}
+
+// A lockfile in the pnpm format, with the peer suffixes a real one carries, for the dependency graph a fixture describes.
+function lockfile(graph: Record<string, string[]>): string {
+  const lines = ['lockfileVersion: \'9.0\'', '', 'snapshots:', ''];
+
+  for (const [name, dependencies] of Object.entries(graph)) {
+    if (dependencies.length === 0) {
+      lines.push(`  '${name}@1.0.0(react@19.3.1)': {}`, '');
+      continue;
+    }
+
+    lines.push(`  '${name}@1.0.0(react@19.3.1)':`, '    dependencies:', ...dependencies.map(dependency => `      '${dependency}': 1.0.0(react@19.3.1)`), '');
+  }
+
+  return `${lines.join('\n')}\n`;
 }
 
 function write(root: string, path: string, content: string) {
@@ -104,7 +121,16 @@ describe('architecture enforcement fixtures', () => {
           const root = temporaryDirectory();
           write(root, 'assets/main.js', fixture.source);
           write(root, 'client-module-graph.json', JSON.stringify({ version: 1, chunks: [{ fileName: 'assets/main.js', modules: fixture.modules }] }));
-          diagnostics = checkClientChunks(root);
+
+          if (fixture.graph) {
+            const project = temporaryDirectory();
+            write(project, 'package.json', JSON.stringify({ dependencies: Object.fromEntries((fixture.direct ?? []).map(name => [name, '1.0.0'])) }));
+            write(project, 'pnpm-lock.yaml', lockfile(fixture.graph));
+            diagnostics = checkClientChunks(root, project);
+          } else {
+            diagnostics = checkClientChunks(root);
+          }
+
           break;
         }
       }
@@ -148,6 +174,14 @@ describe('architecture enforcement fixtures', () => {
     expect(baselineMigrations(root, 'HEAD').get(initialMigration)).toBe(sql);
     expect(baselineMigrations(join(root, 'assets/template'), 'HEAD').get(initialMigration)).toBe('select 2;\n');
     expect(() => baselineMigrations(root, 'missing-base')).toThrow();
+  });
+
+  it('derives the browser allowlist from the committed lockfile', () => {
+    const closure = browserClosure(process.cwd());
+
+    for (const name of ['@tanstack/start-client-core', '@tanstack/router-core', 'seroval', 'scheduler', 'use-sync-external-store', '@radix-ui/react-compose-refs', '@radix-ui/react-focus-scope']) expect(closure.has(name), name).toBe(true);
+
+    for (const name of ['@tanstack/start-server-core', '@tanstack/react-start-server', '@tanstack/start-plugin-core', '@babel/core', 'vite', 'openai', '@supabase/supabase-js']) expect(closure.has(name), name).toBe(false);
   });
 
   it('refuses a missing client graph instead of accepting an unexamined bundle', () => {

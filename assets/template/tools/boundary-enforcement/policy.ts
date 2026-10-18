@@ -6,12 +6,8 @@ export const browserPackages = [
   '@radix-ui/react-dropdown-menu', '@radix-ui/react-dialog',
 ] as const;
 
-export const browserTransitivePackages = [
-  '@radix-ui/react-compose-refs', '@radix-ui/react-primitive', '@tanstack/history',
-  '@tanstack/query-core', '@tanstack/react-start-client', '@tanstack/react-store',
-  '@tanstack/router-core', '@tanstack/router-ssr-query-core', '@tanstack/start-client-core',
-  '@tanstack/store', 'cookie-es', 'scheduler', 'seroval', 'seroval-plugins', 'use-sync-external-store',
-] as const;
+// The dependency closure of the browser packages is allowed in browser chunks, except through these framework packages that run only on the server or at build time.
+export const closureBarrier = /^@tanstack\/(?:[\w-]*-)?(?:server|plugin|rsc)(?:-[\w-]+)?$|^@tanstack\/router-(?:utils|generator|plugin)$|^(?:vite|rolldown|esbuild)$/;
 
 export const serverPackages = ['@supabase/supabase-js', '@supabase/ssr', '@openai/agents', 'openai', 'cloudflare:workers'] as const;
 
@@ -104,7 +100,7 @@ export function renderArchitecture(): string {
   lines.push('', '## Dependency allowlist', '', 'All roles may import `platform/ids.ts` and `zod`. Framework bootstrap modules are explicit owners of generated routing and hydration wiring.', '', '| Source | May import only |', '|---|---|');
 
   for (const role of roles) lines.push(`| ${role.id} | ${role.allows} |`);
-  lines.push('', `Browser packages: ${browserPackages.map(name => `\`${name}\``).join(', ')}.`, '', `Known server packages: ${serverPackages.map(name => `\`${name}\``).join(', ')}. Every package outside the browser allowlist is server-only.`, '', `Browser transitive packages verified in emitted chunks: ${browserTransitivePackages.map(name => `\`${name}\``).join(', ')}.`, '', '## Rule checks', '', '| Rule | Check | Requirement |', '|---|---|---|');
+  lines.push('', `Browser packages: ${browserPackages.map(name => `\`${name}\``).join(', ')}.`, '', `Known server packages: ${serverPackages.map(name => `\`${name}\``).join(', ')}. Every package outside the browser allowlist is server-only.`, '', 'Emitted browser chunks may also contain the dependency closure of the browser packages that `package.json` declares, read from `pnpm-lock.yaml`. The closure excludes the TanStack server, plugin and router-utils packages and the build tools Vite, Rolldown and esbuild, which stay server-only even though a browser package depends on them.', '', '## Rule checks', '', '| Rule | Check | Requirement |', '|---|---|---|');
 
   for (const rule of rules) lines.push(`| ${rule.id} | ${rule.check} | ${rule.text} |`);
 
@@ -182,21 +178,49 @@ export const fixtureExpectations = {
     "pure-clock",
     "pure-random",
     "pure-runtime",
-    "pure-import"
+    "pure-import",
+    "pure-clock-alias",
+    "pure-clock-element",
+    "pure-clock-function",
+    "pure-clock-call",
+    "pure-clock-construct-alias",
+    "pure-random-destructure",
+    "pure-random-alias"
   ],
   "client-data-path": [
     "client-fetch",
     "client-mutation",
-    "client-query"
+    "client-query",
+    "client-mutation-alias",
+    "client-mutation-namespace",
+    "client-mutation-destructure",
+    "client-query-shorthand",
+    "client-query-computed",
+    "client-fetch-alias",
+    "client-fetch-global-this",
+    "client-fetch-passed",
+    "client-transport-alias"
   ],
   "model-adapter": [
     "adapter-import",
-    "adapter-alias"
+    "adapter-alias",
+    "adapter-dynamic-import",
+    "adapter-require",
+    "adapter-default-client",
+    "adapter-default-client-namespace",
+    "adapter-namespace"
   ],
   "env-access": [
     "environment-read",
     "environment-destructure",
-    "environment-workflow"
+    "environment-workflow",
+    "environment-renamed",
+    "environment-element",
+    "environment-destructure-parameter",
+    "environment-alias",
+    "environment-cast",
+    "environment-type-alias",
+    "environment-handler"
   ],
   "test-sign-in": [
     "signin-password",
@@ -224,7 +248,13 @@ export const fixtureExpectations = {
     "styling-arbitrary-function",
     "styling-arbitrary-variant",
     "styling-template-head",
-    "styling-template-tail"
+    "styling-template-tail",
+    "styling-concat",
+    "styling-concat-palette",
+    "styling-concat-constant",
+    "styling-concat-conditional",
+    "styling-template-constant",
+    "styling-join"
   ],
   "banned-package": [
     "repo-eslint",
@@ -271,6 +301,8 @@ export const fixtureExpectations = {
     "bundle-sentinel",
     "bundle-secret-name",
     "bundle-framework-server-package",
-    "bundle-runtime-module"
+    "bundle-runtime-module",
+    "bundle-closure-barrier",
+    "bundle-undeclared-dependency"
   ]
 } as const;

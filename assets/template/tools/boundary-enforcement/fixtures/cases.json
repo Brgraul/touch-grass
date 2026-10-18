@@ -725,6 +725,463 @@
     ]
   },
   {
+    "id": "client-mutation-alias",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "import { useMutation as um } from \"@tanstack/react-query\"; export const save = () => um({ mutationFn: persist });",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "client-mutation-namespace",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "import * as query from \"@tanstack/react-query\"; export const save = () => query.useMutation({ mutationFn: persist });",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "client-mutation-destructure",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "import * as query from \"@tanstack/react-query\"; const { useMutation: mutate } = query; export const save = () => mutate({ mutationFn: persist });",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "client-query-shorthand",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "const queryFn = () => 1; export const query = { queryFn };",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "client-query-computed",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const query = { [\"queryFn\"]: () => 1 };",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "client-fetch-alias",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "const f = fetch; export const load = () => f(\"/data\");",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "client-fetch-global-this",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const load = () => globalThis.fetch(\"/data\");",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "client-fetch-passed",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const load = (run: (transport: typeof fetch) => void) => run(fetch);",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "client-transport-alias",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "const Socket = WebSocket; export const open = () => new Socket(\"wss://example.test\");",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "client-shadow-positive",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export function Page() { const fetch = (value: number) => value; return <div>{fetch(1)}</div>; }",
+    "expected": []
+  },
+  {
+    "id": "adapter-dynamic-import",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export const load = () => import(\"openai\");",
+    "expected": [
+      {
+        "rule": "model-adapter",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "adapter-require",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export const load = () => require(\"openai\");",
+    "expected": [
+      {
+        "rule": "model-adapter",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "adapter-default-client",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "import { setDefaultOpenAIClient } from \"@openai/agents\"; export const install = (client: unknown) => setDefaultOpenAIClient(client);",
+    "expected": [
+      {
+        "rule": "model-adapter",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "adapter-default-client-namespace",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "import * as agents from \"@openai/agents\"; export const install = (client: unknown) => agents.setDefaultOpenAIClient(client);",
+    "expected": [
+      {
+        "rule": "model-adapter",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "adapter-namespace",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "import * as agents from \"@openai/agents\"; export const provider = new agents.OpenAIProvider();",
+    "expected": [
+      {
+        "rule": "model-adapter",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "adapter-dynamic-positive",
+    "kind": "source",
+    "path": "src/platform/model.server.ts",
+    "source": "import { setDefaultOpenAIClient } from \"@openai/agents\"; export const load = () => import(\"openai\"); export const install = (client: unknown) => setDefaultOpenAIClient(client);",
+    "expected": []
+  },
+  {
+    "id": "environment-renamed",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export const read = (bindings: Env) => bindings.LLM_API_KEY;",
+    "expected": [
+      {
+        "rule": "env-access",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "environment-element",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export const read = (bindings: Env) => bindings[\"LLM_API_KEY\"];",
+    "expected": [
+      {
+        "rule": "env-access",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "environment-destructure-parameter",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export const read = ({ LLM_API_KEY }: Env) => LLM_API_KEY;",
+    "expected": [
+      {
+        "rule": "env-access",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "environment-alias",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export function read(bindings: Env) { const copy = bindings; return copy.LLM_API_KEY; }",
+    "expected": [
+      {
+        "rule": "env-access",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "environment-cast",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export const read = (value: unknown) => (value as Env).LLM_API_KEY;",
+    "expected": [
+      {
+        "rule": "env-access",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "environment-type-alias",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "type Bindings = Readonly<Env>; export const read = (bindings: Bindings) => bindings.LLM_API_KEY;",
+    "expected": [
+      {
+        "rule": "env-access",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "environment-handler",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export default { fetch(_request: Request, bindings: Env) { return bindings.LLM_API_KEY; } };",
+    "expected": [
+      {
+        "rule": "env-access",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "environment-renamed-positive",
+    "kind": "source",
+    "path": "src/server.ts",
+    "source": "export const read = (bindings: Env) => bindings.AGENT_CHAT_WORKFLOW;",
+    "expected": []
+  },
+  {
+    "id": "environment-unrelated-positive",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export const read = (settings: { LLM_API_KEY: string }) => settings.LLM_API_KEY;",
+    "expected": []
+  },
+  {
+    "id": "pure-clock-alias",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "const D = Date; export const value = D.now();",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.tools.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-clock-element",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "export const value = Date[\"now\"]();",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.tools.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-clock-function",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "const { now } = Date; export const value = now();",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.tools.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-clock-call",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "export const value = Date();",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.tools.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-clock-construct-alias",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "const D = Date; export const value = new D();",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.tools.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-random-destructure",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "const { random } = Math; export const value = random();",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.tools.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-random-alias",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "const M = Math; export const value = M.random();",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.tools.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-shadow-positive",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "const Date = { now: () => 1 }; export const value = Date.now();",
+    "expected": []
+  },
+  {
+    "id": "pure-fixed-date-positive",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "export const epoch = new Date(0); export const larger = Math.max(1, 2);",
+    "expected": []
+  },
+  {
+    "id": "styling-concat",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const tone = \"bg-\" + \"black\";",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-concat-palette",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const tone = \"text-\" + \"zinc-\" + \"900\";",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-concat-constant",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "const shade = \"zinc-900\"; export const tone = \"bg-\" + shade;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-concat-conditional",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const tone = (on: boolean) => \"text-\" + (on ? \"white\" : \"foreground\");",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-template-constant",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const tone = `bg-${\"black\"}`;",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-join",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const tone = [\"bg-\", \"black\"].join(\"\");",
+    "expected": [
+      {
+        "rule": "styling",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "styling-concat-positive",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const tone = \"bg-\" + \"background\"; export const named = `text-${\"foreground\"}`;",
+    "expected": []
+  },
+  {
     "id": "bundle-positive",
     "kind": "bundle",
     "modules": [
@@ -826,6 +1283,87 @@
       "__vite-browser-external:node:crypto"
     ],
     "source": "export const leaked = true;",
+    "expected": [
+      {
+        "rule": "client-reachability",
+        "path": "assets/main.js"
+      }
+    ]
+  },
+  {
+    "id": "bundle-added-component-dependency",
+    "kind": "bundle",
+    "direct": [
+      "radix-ui"
+    ],
+    "graph": {
+      "radix-ui": [
+        "@radix-ui/react-dialog"
+      ],
+      "@radix-ui/react-dialog": [
+        "@radix-ui/react-focus-scope",
+        "react-remove-scroll"
+      ],
+      "@radix-ui/react-focus-scope": [],
+      "react-remove-scroll": [
+        "tslib"
+      ],
+      "tslib": []
+    },
+    "modules": [
+      "/app/node_modules/.pnpm/@radix-ui+react-focus-scope@1.0.0/node_modules/@radix-ui/react-focus-scope/dist/index.js",
+      "/app/node_modules/.pnpm/react-remove-scroll@2.0.0/node_modules/react-remove-scroll/dist/es2015/index.js",
+      "/app/node_modules/.pnpm/tslib@2.0.0/node_modules/tslib/tslib.es6.js"
+    ],
+    "source": "export const dialog = 1;",
+    "expected": []
+  },
+  {
+    "id": "bundle-closure-barrier",
+    "kind": "bundle",
+    "direct": [
+      "@tanstack/react-start"
+    ],
+    "graph": {
+      "@tanstack/react-start": [
+        "@tanstack/start-client-core",
+        "@tanstack/start-server-core"
+      ],
+      "@tanstack/start-client-core": [],
+      "@tanstack/start-server-core": [
+        "h3"
+      ],
+      "h3": []
+    },
+    "modules": [
+      "/app/node_modules/.pnpm/@tanstack+start-client-core@1.0.0/node_modules/@tanstack/start-client-core/dist/index.js",
+      "/app/node_modules/.pnpm/h3@1.0.0/node_modules/h3/dist/index.mjs"
+    ],
+    "source": "export const client = 1;",
+    "expected": [
+      {
+        "rule": "client-reachability",
+        "path": "assets/main.js"
+      }
+    ]
+  },
+  {
+    "id": "bundle-undeclared-dependency",
+    "kind": "bundle",
+    "direct": [
+      "radix-ui"
+    ],
+    "graph": {
+      "radix-ui": [
+        "@radix-ui/react-dialog"
+      ],
+      "@radix-ui/react-dialog": [],
+      "left-pad": []
+    },
+    "modules": [
+      "/app/node_modules/.pnpm/left-pad@1.0.0/node_modules/left-pad/index.js"
+    ],
+    "source": "export const pad = 1;",
     "expected": [
       {
         "rule": "client-reachability",

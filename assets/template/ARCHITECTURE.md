@@ -56,7 +56,7 @@ Browser packages: `react`, `react-dom`, `@tanstack/react-router`, `@tanstack/rea
 
 Known server packages: `@supabase/supabase-js`, `@supabase/ssr`, `@openai/agents`, `openai`, `cloudflare:workers`. Every package outside the browser allowlist is server-only.
 
-Browser transitive packages verified in emitted chunks: `@radix-ui/react-compose-refs`, `@radix-ui/react-primitive`, `@tanstack/history`, `@tanstack/query-core`, `@tanstack/react-start-client`, `@tanstack/react-store`, `@tanstack/router-core`, `@tanstack/router-ssr-query-core`, `@tanstack/start-client-core`, `@tanstack/store`, `cookie-es`, `scheduler`, `seroval`, `seroval-plugins`, `use-sync-external-store`.
+Emitted browser chunks may also contain the dependency closure of the browser packages that `package.json` declares, read from `pnpm-lock.yaml`. The closure excludes the TanStack server, plugin and router-utils packages and the build tools Vite, Rolldown and esbuild, which stay server-only even though a browser package depends on them.
 
 ## Rule checks
 
