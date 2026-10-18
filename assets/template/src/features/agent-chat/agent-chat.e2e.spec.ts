@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { seedFinishedExchange } from '../../../tests/fixtures/chat-seed'
+import { seedFinishedExchange, seedUndispatchedRun } from '../../../tests/fixtures/chat-seed'
 import { createTestUser, deleteTestUser, signInAs } from '../../../tests/fixtures/test-users'
 
 test('a run shows its steps, survives a reload, can be stopped, and renders every block kind', async ({ page }) => {
@@ -73,6 +73,27 @@ test('a run shows its steps, survives a reload, can be stopped, and renders ever
       await expect(page.getByText('Structured output · forecast')).toBeVisible()
       await expect(page.getByText('Unsupported saved content (hologram, version 1).')).toBeVisible()
     })
+  } finally {
+    await deleteTestUser(user)
+  }
+})
+
+test('the cron trigger starts a run whose dispatch was lost', async ({ page }) => {
+  const user = await createTestUser()
+
+  try {
+    const { conversationId } = await seedUndispatchedRun({ userId: user.id, message: `Recover this run [${crypto.randomUUID().slice(0, 8)}]` })
+
+    await signInAs(page, user)
+    await page.goto(`/chat/${conversationId}`)
+    await expect(page.getByText('Ready to help.')).toBeHidden()
+
+    // workerd serves this route locally and runs the Worker's `scheduled` export, as the deployed cron would.
+    const sweep = await page.request.get('/cdn-cgi/local/scheduled?format=json')
+
+    expect(await sweep.json()).toMatchObject({ outcome: 'ok' })
+    await expect(page.getByText('Ready to help.')).toBeVisible()
+    await expect(page.getByText('Completed')).toBeVisible()
   } finally {
     await deleteTestUser(user)
   }

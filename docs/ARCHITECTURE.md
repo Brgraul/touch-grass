@@ -1076,7 +1076,7 @@ Fixtures under `tools/boundary-enforcement/fixtures/` prove each check, and `too
 
 | Kind | Location | Runner |
 |---|---|---|
-| E2E journey | `src/features/<feature>/<feature>.e2e.spec.ts` | Playwright against the local stack |
+| E2E journey | `src/features/<feature>/<feature>.e2e.spec.ts` | Playwright against the production build in workerd (`vite preview`) and the local stack |
 | Feature integration | `src/features/<feature>/<feature>.integration.test.ts` | Vitest in the Workers runtime (`@cloudflare/vitest-pool-workers`) against the local Supabase database |
 | Pure logic | `src/features/<feature>/<feature>.model.test.ts` | Vitest |
 | Provider error classification | `src/platform/model.server.test.ts` | Vitest against recorded provider fixtures |
@@ -1092,7 +1092,9 @@ Fixtures under `tools/boundary-enforcement/fixtures/` prove each check, and `too
 |---|---|
 | Auth | Open `/chat` signed out and confirm the redirect to `/login`. Click "Continue with Google", intercept the navigation to `accounts.google.com`, assert its `client_id` and `redirect_uri` parameters, and abort it. Open `/auth/callback?code=invalid` and confirm the redirect to `/login?error=sign_in_failed`. Sign in with `signInAs`, open `/chat`, log out, and confirm `/chat` redirects to `/login`. |
 | Account | Update the display name, reload, confirm it persisted |
-| Agent Chat | Send a message that makes the provider double call `calculate`. See the tool call and the tool result appear as their step is saved, reload while the run is active, and confirm the run continues and the transcript shows the tool call, the tool result, and the final turn. Send a second message whose reply the double delays, and stop it. Seed one agent turn holding every block kind and one row with an unknown kind through SQL, then confirm each renders, including the unsupported fallback. |
+| Agent Chat | Send a message that makes the provider double call `calculate`. See the tool call and the tool result appear as their step is saved, reload while the run is active, and confirm the run continues and the transcript shows the tool call, the tool result, and the final turn. Send a second message whose reply the double delays, and stop it. Seed one agent turn holding every block kind and one row with an unknown kind through SQL, then confirm each renders, including the unsupported fallback. Seed a run whose dispatch was lost, fire the cron trigger through workerd's local `/cdn-cgi/local/scheduled` route, and confirm the sweep starts the run and it completes. |
+
+The journeys use no module mocks or in-process stubs. The Worker runs from its production bundle in workerd, the open-source runtime Cloudflare deploys, with Miniflare's local Workflows engine and cron trigger route. Supabase runs from the CLI's containers. Only the two services outside the stack are replaced: the LLM provider by the provider double over HTTP, and Google sign-in by `signInAs` against the real Supabase Auth. Plan limits, edge placement, and the production cron scheduler cannot be reproduced locally.
 
 CI runs the journeys with the provider double. A separate live smoke test, run by `pnpm verify:deployed`, sends a real message to the configured LLM provider and confirms its run completes.
 
@@ -1148,7 +1150,7 @@ Each row is at least one integration or database test. One case is a unit test i
 | `pnpm test:workers` | Vitest integration tests in the Workers runtime, against the local database and the provider double |
 | `pnpm test:db` | SQL tests in `supabase/tests/` |
 | `pnpm test:db:races` | Concurrent admission, capacity, and terminal-order races in `tests/database/races.ts` |
-| `pnpm test:e2e` | Playwright journeys |
+| `pnpm test:e2e` | Builds the app and runs the Playwright journeys against `vite preview`. `EXTERNAL_APP=1` aims them at an already running server instead. |
 | `pnpm check:bundle` | Production build and client-bundle inspection |
 | `pnpm check` | Everything above against a freshly reset local database, then `db:types` with a failure on any diff. CI runs this. |
 | `pnpm verify:deployed --env <name>` | Live checks against a deployed Wrangler environment |

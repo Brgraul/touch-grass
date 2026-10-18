@@ -57,3 +57,25 @@ export async function seedFinishedExchange({ userId, message, turns, unknownBloc
     await client.end()
   }
 }
+
+// Admits a run without starting its Workflow, as if the dispatch reply was lost, and ages it past the sweep's dispatch check.
+export async function seedUndispatchedRun({ userId, message }: { userId: string; message: string }) {
+  const client = new Client({ connectionString: settings.TEST_DATABASE_URL })
+
+  await client.connect()
+
+  try {
+    const submitted = await client.query<{ receipt: { run: { id: string; conversationId: string } } }>(
+      'select agent_chat_api.submit_message($1, $2, $3, $4, 8, 4, 60, 2, 10, 900) as receipt',
+      [userId, settings.ENVIRONMENT_ID, crypto.randomUUID(), message],
+    )
+
+    const { id: runId, conversationId } = submitted.rows[0]!.receipt.run
+
+    await client.query("update agent_chat.runs set created_at = now() - interval '2 minutes' where id = $1", [runId])
+
+    return { runId, conversationId }
+  } finally {
+    await client.end()
+  }
+}

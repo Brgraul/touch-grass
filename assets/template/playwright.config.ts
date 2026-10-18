@@ -17,12 +17,15 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], channel: 'chrome' } }],
+  // The journeys run against the production build in workerd, the runtime Cloudflare deploys, with local
+  // Workflows and cron. Reusing a running server would test `pnpm dev` instead, so a busy port fails the run.
+  // Set EXTERNAL_APP=1 to aim the journeys at a server you started, such as `pnpm dev` while iterating.
   webServer: process.env.EXTERNAL_APP
     ? undefined
     : {
-        command: 'pnpm dev',
+        command: 'pnpm build && pnpm preview',
         url: 'http://127.0.0.1:3000/login',
-        reuseExistingServer: !process.env.CI,
+        reuseExistingServer: false,
         timeout: 120_000,
       },
 })

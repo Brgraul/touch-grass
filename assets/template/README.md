@@ -46,7 +46,7 @@ To sign in with Google on your machine, add `http://127.0.0.1:54321/auth/v1/call
 | `pnpm test` | Unit and architecture tests |
 | `pnpm test:workers` | Integration tests in the Workers runtime, against the local database and the provider double |
 | `pnpm test:db` | SQL tests in `supabase/tests/` |
-| `pnpm test:e2e` | Playwright journeys |
+| `pnpm test:e2e` | Builds the app and runs the Playwright journeys against it in workerd |
 | `pnpm check:bundle` | Production build and client-bundle inspection |
 | `pnpm check` | Every step above against a freshly reset local database, then `db:types` with a failure on any diff. CI runs this. |
 | `pnpm verify:deployed --env <name>` | Live checks against a deployed environment, or `local` |
@@ -60,6 +60,12 @@ To sign in with Google on your machine, add `http://127.0.0.1:54321/auth/v1/call
 If any step did not run, `pnpm check` exits with code 2 and prints `INCOMPLETE`. Treat that as a failure to verify, not as a pass. Pass `--skip <step,step>` or `--only <step,step>` to choose steps, and `--list` to print their names.
 
 `pnpm check` starts the provider double itself when nothing listens on port 4010. It writes a temporary `.dev.vars` when none exists and removes it afterward.
+
+### Run the E2E journeys
+
+`pnpm test:e2e` builds the app and serves the build with `pnpm preview`, which runs the Worker in workerd, the runtime Cloudflare deploys, with local Workflows and cron. It needs port 3000 free, so stop `pnpm dev` first. To run the journeys against `pnpm dev` while you iterate, run `EXTERNAL_APP=1 pnpm test:e2e`.
+
+The journeys mock no application code. The local Supabase stack is real. The provider double stands in for the LLM API, and `signInAs` stands in for Google. `pnpm verify:deployed` covers both services after a deploy.
 
 ## Set up the hosted environments
 

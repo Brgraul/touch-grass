@@ -14,7 +14,7 @@
     "dev:vars": "tsx tools/local-env.ts",
     "dev:provider": "tsx tests/fixtures/provider-double.ts",
     "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 3000",
+    "preview": "vite preview --host 127.0.0.1 --port 3000 --strictPort",
     "lint": "oxlint && node --import tsx tools/boundary-enforcement/lint-rules/check-source.ts",
     "check:boundaries": "node --import tsx tools/boundary-enforcement/check-boundaries.ts",
     "check:repo": "tsx tools/boundary-enforcement/check-repo.ts",
