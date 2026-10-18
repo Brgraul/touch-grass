@@ -11,11 +11,11 @@
 | Template (`assets/template/`) | Implemented. [ARCHITECTURE.md](ARCHITECTURE.md) is its specification. |
 | Repository-local `$touch-grass` verification skill | Implemented, at `assets/template/.agents/skills/touch-grass/SKILL.md`. |
 | Bundled third-party agent skills | Implemented and pinned. See `assets/template/.agents/skills/UPSTREAM.md`. |
-| Global `$touch-grass` skill (`touch-grass/SKILL.md`) | Not built. |
-| Provisioning scripts | Not built. |
-| Codex Cloud setup and handoff | Not built. |
+| Global `$touch-grass` skill (`touch-grass/SKILL.md`) | Implemented. Default GitHub + Codex workflow and separate optional hosted reference. |
+| Provisioning scripts | Implemented. Pinned committed snapshot, private recovery journal and conservative GitHub identity checks. Offline fixture verification only; no live resources created for implementation tests. |
+| Codex Cloud setup and handoff | Implemented through supported tool discovery/native setup instructions. Selected-runtime Docker/Chrome and a live four-check cloud pass remain unverified. |
 
-The remaining work is the global skill and everything it orchestrates. The template is its input and is not changed by this work, except to fix defects that provisioning or cloud verification exposes.
+The global skill orchestrates safe local/GitHub steps and supported Codex UI/task handoffs. Live cloud runtime acceptance remains pending. The template is its input and is not changed by this work, except to fix defects that provisioning or cloud verification exposes.
 
 ## User Experience
 
@@ -49,8 +49,8 @@ The remaining work is the global skill and everything it orchestrates. The templ
 
 The MVP provisions the GitHub repository and the Codex Cloud environment. It does not provision the template's hosted environments.
 
-- **Hosted environments are manual.** Deploying the app needs two Supabase projects, a Cloudflare account, a Google OAuth client, an LLM provider key, and a connection from each Worker to the repository in Cloudflare Workers Builds. The template's `README.md` documents that setup. Touch Grass creates none of these resources and asks for none of these credentials.
-- **Nothing deploys until the person connects Workers Builds.** The template has no deploy workflow in GitHub. Cloudflare Workers Builds builds and deploys each Worker, so the initial push triggers no deploy run. A deploy that Workers Builds starts early stops at the template's `pnpm cf:deploy` checks until `wrangler.jsonc` holds real values. Report this as "deployment not configured", not as a verification failure.
+- **Hosted environments are optional.** Deploying the app needs two Supabase projects, a Cloudflare account, a Google OAuth client, an LLM provider key, and a connection from each Worker to the repository in Cloudflare Workers Builds. The template's `SETUP.md` documents that setup. The default workflow creates none of these resources and asks for none of these credentials. An explicit hosted request uses the global skill's conditional hosted reference and supported vendor APIs/CLIs/browser UI, with person-only auth/cost/legal gates and separate deployment authorization.
+- **Nothing deploys during default setup.** The template has no deploy workflow in GitHub. Cloudflare Workers Builds builds and deploys each Worker after a separately authorized hosted connection, so the default initial push triggers no deploy run. A deploy that Workers Builds starts early stops at the template's `pnpm cf:deploy` checks until `wrangler.jsonc` holds real values. Report this as "deployment not configured", not as a verification failure.
 - **CI runs on pull requests only.** The initial push to `main` triggers no `ci.yml` run, so a green CI badge is not evidence of verification.
 
 ## Dependencies & Authentication
@@ -69,6 +69,6 @@ One `$touch-grass` invocation creates a private GitHub repository with the templ
 
 ## Open Questions
 
-- **Docker in Codex Cloud.** `pnpm check` resets a local Supabase stack, which needs Docker. If the Codex Cloud runtime cannot run Docker, check 4 reports `not run` and cloud verification can never pass as written. Confirm Docker support before building the cloud setup. If it is unavailable, choose between running the database steps elsewhere (for example, CI on a pull request opened by the skill) and narrowing the cloud gate, and record the decision here.
+- **Docker in Codex Cloud.** `pnpm check` resets a local Supabase stack, which needs Docker. If the Codex Cloud runtime cannot run Docker, check 4 reports `not run` and cloud verification can never pass as written. Probe Docker support in the selected cloud runtime during setup. If unavailable, retain incomplete cloud verification. Changing the acceptance gate requires a separate explicit decision; CI is not a silent substitute.
 - **Chrome in Codex Cloud.** Playwright drives Google Chrome. Confirm the runtime has it or that the setup script can install it.
-- **Programmatic Codex Cloud provisioning.** Confirm which supported interface, if any, creates an environment and sets its setup script. Otherwise, specify the guided native setup.
+- **Programmatic Codex Cloud provisioning.** Current new environments use a native setup conversation, install script/start skill and Publish. Discover supported tooling at runtime; no supported environment-management API was established. CLI 0.162.1 tasks require a discoverable Legacy environment and must not be assumed compatible with new `asenvcfg_` environments. See [cloud workflow](../touch-grass/references/cloud.md).

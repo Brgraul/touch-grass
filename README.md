@@ -16,12 +16,30 @@
 </p>
 
 <p align="center">
-  <a href="SPEC.md">MVP specification</a> · <a href="ARCHITECTURE.md">Architecture</a>
+  <a href="docs/SPEC.md">MVP specification</a> · <a href="docs/ARCHITECTURE.md">Architecture</a>
 </p>
 
 One command to go from an empty directory to a private GitHub repo, a working TanStack Start app, and a verified Codex Cloud environment. Then go outside.
 
 **Opinionated by design:** local Codex handles setup; your coding agents continue development in Codex Cloud. Built around the OpenAI ecosystem.
+
+## Install
+
+Clone this repository and install its global Codex skill. Keep the checkout in place because the skill uses its sibling template.
+
+```sh
+git clone https://github.com/Brgraul/touch-grass.git
+cd touch-grass
+node touch-grass/scripts/install.mjs
+```
+
+The installer uses `${CODEX_HOME:-~/.codex}/skills` by default and accepts `--skills-dir <directory>`. It is rerunnable and preserves unrelated installations. Restart or refresh Codex skill discovery after installation.
+
+Run the skill's regression checks without provisioning live resources:
+
+```sh
+node --test touch-grass/scripts/test/*.test.mjs
+```
 
 ## One command
 
@@ -58,9 +76,11 @@ Setup is complete only after cloud verification passes. If verification requires
 
 - **OpenAI account** with Codex Cloud access and the GitHub integration authorized.
 - **GitHub account** with permission to create private repositories and push code.
-- **Cloudflare and Supabase accounts** to provision and deploy the generated app.
-- **Google Cloud account** to create the OAuth client for "Continue with Google". It's free and needs no custom domain.
+- **Cloudflare and Supabase accounts** only for optional hosted setup and deployment.
+- **Google Cloud account** for optional hosted Google sign-in. Production branding may require your homepage, privacy policy and an authorized domain; a free no-domain path is not guaranteed.
 
-Locally: Codex, Git, and an authenticated GitHub CLI (`gh`).
+Locally: Codex, Node.js >=22.23, Git, and an authenticated GitHub CLI (`gh`).
 
 The app's AI features need separate LLM API credentials and usage budget; the provider is configurable.
+
+Hosted setup is a separate request. See [provisioning surfaces](docs/PROVISIONING.md) and the [global skill](touch-grass/SKILL.md). Docker and Chrome support must be demonstrated in the chosen cloud runtime; a handoff remains pending until all four checks pass.

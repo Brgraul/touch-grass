@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+here=$(cd "$(dirname "$(realpath "$0")")" && pwd)
+version=$(node -p 'process.versions.node' 2>/dev/null || echo missing)
+case "$version" in
+  missing) echo "tg: Node.js is not installed. Install Node.js 22.23 or later (brew install node), then run again." >&2; exit 1 ;;
+esac
+major=${version%%.*}; rest=${version#*.}; minor=${rest%%.*}
+if [ "$major" -lt 22 ] || { [ "$major" -eq 22 ] && [ "$minor" -lt 23 ]; }; then
+  echo "tg: Node.js $version is too old. Install Node.js 22.23 or later (brew install node), then run again." >&2
+  exit 1
+fi
+exec node "$here/tg.ts" "$@"
