@@ -11,11 +11,13 @@ Sign-in uses Google only. The app sends no email.
 
 `ARCHITECTURE.md` lists every file role, import rule, and rule check. `AGENTS.md` holds the short rules for coding agents.
 
+[`SETUP.md`](SETUP.md) is a checklist of every account, credential, and setting a person must provide before the app runs and deploys.
+
 ## Requirements
 
-- Node.js 22.23.0 or later.
+- Node.js 22.23.0 or later. `.node-version` pins 22.23.2, which CI and Workers Builds use.
 - pnpm 11.25.0, the version pinned in `package.json`.
-- Docker, to run the local Supabase stack. CI uses the same stack on GitHub runners.
+- Docker, to run the local Supabase stack.
 - Google Chrome, which the Playwright tests and `pnpm verify:deployed` drive.
 
 ## Run the app locally
@@ -48,7 +50,8 @@ To sign in with Google on your machine, add `http://127.0.0.1:54321/auth/v1/call
 | `pnpm test:db` | SQL tests in `supabase/tests/` |
 | `pnpm test:e2e` | Builds the app and runs the Playwright journeys against it in workerd |
 | `pnpm check:bundle` | Production build and client-bundle inspection |
-| `pnpm check` | Every step above against a freshly reset local database, then `db:types` with a failure on any diff. CI runs this. |
+| `pnpm check` | Every step above against a freshly reset local database, then `db:types` with a failure on any diff. |
+| `pnpm cf:deploy` | Applies migrations and Auth configuration, then deploys the Worker. Workers Builds runs it. See [Deploy and verify](#deploy-and-verify). |
 | `pnpm verify:deployed --env <name>` | Live checks against a deployed environment, or `local` |
 | `pnpm db:reset`, `pnpm db:diff <name>`, `pnpm db:types` | Reset the local database, generate a migration, regenerate database types |
 | `pnpm gen:architecture` | Renders `ARCHITECTURE.md` from `tools/boundary-enforcement/policy.ts` |
@@ -69,7 +72,7 @@ The journeys mock no application code. The local Supabase stack is real. The pro
 
 ## Set up the hosted environments
 
-The template has two hosted environments, `dev` and `production`. Each has its own Supabase project, Worker, and GitHub environment. Nothing in the template creates cloud resources. You create them once, in this order.
+The template has two hosted environments, `dev` and `production`. Each has its own Supabase project and Worker. Cloudflare Workers Builds, Cloudflare's Git integration, builds and deploys each Worker from this repository. GitHub runs only the pull request check. Nothing in the template creates cloud resources. You create them once, in this order. [`SETUP.md`](SETUP.md) lists the same steps as a checklist.
 
 ### 1. Create the Google OAuth client
 
@@ -82,58 +85,95 @@ The consent screen names `<project-ref>.supabase.co`, not your app.
 
 ### 2. Create the Supabase projects
 
-1. Create two projects, one for `dev` and one for `production`. Choose a database password for each and save it.
+1. Create two projects, one for `dev` and one for `production`. Choose a database password for each and save it. Prefer letters and digits, so step 6 needs no percent-encoding.
 2. Copy each project's 20-letter reference from its URL.
-3. In `supabase/config.toml`, set `project_id` in `[remotes.dev]` and `[remotes.production]` to those references. The shipped values are placeholders. `deploy.yml` stops if the value does not match the `SUPABASE_PROJECT_REF` secret, because `supabase config push` would otherwise apply the local `localhost` Auth URLs to the hosted project.
-4. In `wrangler.jsonc`, set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in each environment's `vars`. The publishable key is on the project's API keys page and is safe to commit.
+3. In `supabase/config.toml`, set `project_id` in `[remotes.dev]` and `[remotes.production]` to those references. The shipped values are placeholders. `pnpm cf:deploy` stops if the value does not match the project in `SUPABASE_URL`, because `supabase config push` would otherwise apply the local `localhost` Auth URLs to the hosted project.
+4. In `wrangler.jsonc`, set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in each environment's `vars`. The publishable key is on the project's API keys page and is safe to commit. `SUPABASE_URL` must be `https://<project-ref>.supabase.co`. The deploy derives the project reference from it.
 5. Create a Supabase access token for the CLI. All Auth settings live in `supabase/config.toml`, so never change them in the dashboard.
+6. For each project, copy the session-mode pooler connection string from the project's Connect dialog. It uses port 5432 and the user `postgres.<project-ref>`. Put your database password in it, percent-encoded. This is `SUPABASE_DB_URL`. Use the pooler string, not the direct `db.<project-ref>.supabase.co` host. The direct host is IPv6 only on the Free plan, and the build container is not known to have IPv6.
 
 ### 3. Set up Cloudflare
 
 1. Choose your account's workers.dev subdomain.
 2. In `wrangler.jsonc`, replace `example` in each environment's `APP_URL` with that subdomain. For example, `https://touch-grass-dev.<subdomain>.workers.dev`.
 3. Make the same replacement in `site_url` and `additional_redirect_urls` under `[remotes.dev.auth]` and `[remotes.production.auth]` in `supabase/config.toml`. The two files must agree, or sign-in redirects to the wrong host. `pnpm check:repo` fails when they differ.
-4. Copy your Cloudflare account ID. Create an API token from the "Edit Cloudflare Workers" template.
+
+You do not create a Cloudflare API token or copy an account ID. Workers Builds deploys with its own credentials.
 
 ### 4. Choose the LLM provider
 
 Any provider with an OpenAI-compatible chat-completions API works. Set `LLM_BASE_URL` and `LLM_MODEL` in each environment's `vars` in `wrangler.jsonc`. The key is a secret, described below. Use a separate key for each environment and set a monthly spend limit at the provider.
 
-### 5. Configure GitHub
+### 5. Connect each Worker to Workers Builds
 
-1. Create the GitHub environments `dev` and `production`. Add required reviewers to `production`.
-2. Add the secrets in the next section to each environment.
-3. Require the `check` job of `ci.yml` before merging to `main`.
+1. Create the release branch with `git push origin main:production`. Later releases fast-forward it.
+2. In the Cloudflare dashboard, open Workers & Pages, choose Create, then Import a repository. Select the repository and name the Worker `touch-grass-dev`. This creates the Worker and installs the Cloudflare GitHub App on the repository. Repeat for `touch-grass-production`. Each Worker name must equal the `name` of its environment in `wrangler.jsonc`.
+3. Give each Worker these build settings.
+
+| Setting | `touch-grass-dev` | `touch-grass-production` |
+|---|---|---|
+| Production branch | `main` | `production` |
+| Builds for non-production branches | Off | Off |
+| Build command | `pnpm build` | `pnpm build` |
+| Deploy command | `pnpm cf:deploy` | `pnpm cf:deploy` |
+| Build variable `CLOUDFLARE_ENV` | `dev` | `production` |
+| Build variable `PNPM_VERSION` | `11.25.0` | `11.25.0` |
+| Build secrets | `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_URL`, `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID`, `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET`, with this environment's values | The same names, with this environment's values |
+
+`CLOUDFLARE_ENV` makes the Vite plugin write the environment's name, bindings, and vars into `dist/server/wrangler.json`. `wrangler deploy` reads that file, so never pass `--env` to it. `PNPM_VERSION` is needed because the build image defaults to pnpm 10.11.1. Node comes from `.node-version`. Preview builds stay off because a preview version would run against a database whose migrations have not run.
+
+4. Set the two runtime secrets once per Worker, after you run `pnpm exec wrangler login`. Each command prompts for the value.
+
+```sh
+pnpm exec wrangler secret put SUPABASE_SECRET_KEY --name touch-grass-dev
+pnpm exec wrangler secret put LLM_API_KEY --name touch-grass-dev
+```
+
+Repeat with `--name touch-grass-production`. You can also set them in the dashboard. They persist across deploys, and the deploy never uploads them.
+
+If the first build starts before you save the build secrets, or while `wrangler.jsonc` still holds placeholders, it stops at `pnpm cf:deploy` before it changes anything. Save the settings, merge your edits to `main`, and retry the build from the dashboard.
 
 ## Settings and secrets
 
 Non-secret settings live in `wrangler.jsonc`. Secrets live only in the places below. Never write a secret into code, logs, or commits.
 
-| Name | Where it is set | Used by |
-|---|---|---|
-| `ENVIRONMENT_ID` | `vars` in `wrangler.jsonc`. A UUID you choose once per environment. | The Worker |
-| `APP_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | `vars` in `wrangler.jsonc` | The Worker and `verify:deployed` |
-| `SUPABASE_SECRET_KEY` | `.dev.vars` locally. GitHub environment secret for deploys. | The Worker, uploaded by `deploy.yml`. `verify:deployed`. |
-| `LLM_API_KEY` | `.dev.vars` locally. GitHub environment secret for deploys. | The Worker, uploaded by `deploy.yml` |
-| `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID`, `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET` | `supabase/.env` locally. GitHub environment secrets. | `supabase config push` and the local stack |
-| `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD`, `SUPABASE_ACCESS_TOKEN` | GitHub environment secrets | `deploy.yml` |
-| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | GitHub environment secrets | `deploy.yml` |
+| Kind | Names | Where it is set | Used by |
+|---|---|---|---|
+| Wrangler `vars` | `ENVIRONMENT_ID`, a UUID you choose once per environment | `vars` in `wrangler.jsonc` | The Worker |
+| Wrangler `vars` | `APP_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | `vars` in `wrangler.jsonc` | The Worker, `cf:deploy`, and `verify:deployed` |
+| Worker secrets | `SUPABASE_SECRET_KEY`, `LLM_API_KEY` | `wrangler secret put <NAME> --name touch-grass-<env>`, or the dashboard. Set once per Worker. | The Worker |
+| Workers Builds build secrets | `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_URL`, `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID`, `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET` | The Worker's build settings in the dashboard | `pnpm cf:deploy` |
+| Workers Builds build variables | `CLOUDFLARE_ENV`, `PNPM_VERSION` | The Worker's build settings in the dashboard | `pnpm build` and `pnpm cf:deploy` |
+| Local files | `SUPABASE_SECRET_KEY`, `LLM_API_KEY` in `.dev.vars`. The two Google values in `supabase/.env`. | Your machine, never committed | The local app and the local Supabase stack |
+| Your shell | `SUPABASE_SECRET_KEY` | Exported when you run `verify:deployed` | `verify:deployed` |
+
+`SUPABASE_DB_URL` is the project's session-mode pooler string described in step 2. The project reference is not a secret. `cf:deploy` derives it from `SUPABASE_URL`.
+
+Workers Builds exposes build secrets to every build command, including `pnpm install` and `pnpm build`. Keep dependencies pinned and reviewed.
 
 ## Deploy and verify
 
-CI runs `pnpm check` on every pull request. It starts the local Supabase stack with the pinned CLI and sets the Google variables to placeholders.
+CI runs `pnpm check:fast` on every pull request, and the pull request shows the result as a check. It needs no secrets and no Docker, and it is the only GitHub workflow. Nothing deploys from GitHub.
 
-A merge to `main` runs `deploy.yml`. It deploys only from `main`, including a manual run. For `dev`, then `production` after approval, it does the following.
+Workers Builds deploys. A push to `main` builds and deploys `touch-grass-dev`. A push to `production` builds and deploys `touch-grass-production`. Each build runs `pnpm build` with `CLOUDFLARE_ENV` set, then `pnpm cf:deploy`. The deploy command stops at the first failure and does the following.
 
-1. Stops if `wrangler.jsonc` still holds a placeholder for the environment, before anything is installed or built.
-2. Applies the migration ledger with `supabase db push`. Migrations go first because the Auth configuration enables a hook that calls a migrated function.
-3. Applies `supabase/config.toml` with `supabase config push`.
-4. Builds and deploys the Worker with `wrangler deploy`, uploading the two Worker secrets.
-5. Runs `pnpm verify:deployed --env <name>`.
+1. Requires `CLOUDFLARE_ENV` to name an environment in `wrangler.jsonc`.
+2. Stops if `wrangler.jsonc` still holds a placeholder for that environment.
+3. Derives the project reference from `SUPABASE_URL`, and requires `supabase/config.toml` to have a `[remotes.<environment>]` block with that `project_id`.
+4. Requires the four build secrets. It lists missing names and never prints a value.
+5. Applies the migration ledger with `supabase db push --db-url`. Migrations go first because the Auth configuration enables a hook that calls a migrated function.
+6. Applies `supabase/config.toml` with `supabase config push`.
+7. Deploys the Worker with `wrangler deploy`.
 
-Each secret reaches only the steps that use it. `pnpm install` and `pnpm build` see none of them.
+To release production, check that `dev` verifies, then run `git push origin main:production`. The push fast-forwards `production` to `main`. Push only commits that are already on `main`.
 
-A deployment whose verification fails or does not run is unverified. If a step loses its response, inspect the migration history or the deployed Worker version before you retry.
+Workers Builds does not run `verify:deployed`. After each deploy, run it yourself.
+
+```sh
+SUPABASE_SECRET_KEY=... pnpm verify:deployed --env dev
+```
+
+A deployment is unverified until that command passes. If a step loses its response, inspect the migration history or the deployed Worker version before you retry.
 
 `pnpm verify:deployed --env dev` reads the environment's settings from `wrangler.jsonc` and needs `SUPABASE_SECRET_KEY` in your shell. It runs these checks in order and stops at the first failure.
 
@@ -156,8 +196,9 @@ The template targets Cloudflare Workers Free and Supabase Free. These limits com
 | Workers Free | 100,000 requests per day, 10 ms of CPU per request, 50 subrequests per request, 5 Cron Triggers per account |
 | Workflows on Workers Free | 1,024 steps per instance, 100 concurrent instances per account, 10 ms of CPU per step, 3 days of retention for finished instances |
 | Supabase Free | 2 active projects, 500 MB of database per project, 50,000 monthly active users, 5 GB of egress, and a pause after 1 week of inactivity |
+| Workers Builds on Free | 3,000 build minutes per month, 1 concurrent build per account, 20-minute build timeout |
 
-Two projects use both Supabase Free slots. Restore a paused project from the Supabase dashboard. The sweep runs on a cron trigger every minute, which uses one of the five Cron Triggers for each environment.
+Two projects use both Supabase Free slots. Restore a paused project from the Supabase dashboard. The sweep runs on a cron trigger every minute, which uses one of the five Cron Triggers for each environment. Both Workers share the account's single concurrent build, so a push to `main` and a push to `production` build one after the other.
 
 The template stays inside these limits by default. At most 10 runs are active per environment, below the 100-instance Workflows limit. A run takes at most 8 steps.
 

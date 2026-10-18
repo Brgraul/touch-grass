@@ -28,6 +28,7 @@
     "test:e2e": "playwright test",
     "check:bundle": "tsx tools/boundary-enforcement/check-client-bundle.ts",
     "check": "tsx tools/check.ts",
+    "cf:deploy": "tsx tools/deploy.ts",
     "verify:deployed": "tsx tools/verify-deployed.ts",
     "db:reset": "supabase db reset --local",
     "db:diff": "supabase db schema declarative sync --no-apply -f",

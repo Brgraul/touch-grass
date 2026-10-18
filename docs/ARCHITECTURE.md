@@ -56,7 +56,8 @@ The template contains application code, database definitions, tests, CI, deploym
 | Boundaries | dependency-cruiser plus a client-bundle inspection script |
 | Tests | Vitest, Playwright, SQL tests run through the Supabase CLI |
 | Package manager | pnpm with a committed lockfile |
-| CI | GitHub Actions |
+| CI | GitHub Actions, for the pull request check only |
+| Deployment | Cloudflare Workers Builds, which builds and deploys each Worker from the repository |
 | Migrations | Supabase CLI with declarative schemas |
 | Worker configuration | Wrangler |
 
@@ -78,8 +79,7 @@ Create only the files a feature needs. Never create placeholder files.
 ```text
 .agents/skills/                          Bundled, version-pinned agent skills
 .github/workflows/
-	ci.yml                               Full check on every pull request
-	deploy.yml                           Migrate, deploy, verify on main
+	ci.yml                               check:fast on every pull request
 src/
 	routes/
 		__root.tsx                       Document shell, QueryClient provider
@@ -164,9 +164,11 @@ tools/
 		fixtures/                        Positive and negative fixtures for every check
 		boundary-enforcement.test.ts     Runs every checker against the fixtures
 	oxlint/anti-slop/                    Vendored lint rules
+	deploy.ts                            Implements pnpm cf:deploy, the Workers Builds deploy command
 	verify-deployed.ts                   Implements pnpm verify:deployed
 	hooks/                               Optional agent hooks
 ARCHITECTURE.md                          Generated from policy.ts; never edited by hand
+.node-version                            Node version for CI and Workers Builds
 components.json                          shadcn/ui configuration
 AGENTS.md
 oxlint.config.ts
@@ -323,11 +325,11 @@ skip_nonce_check = false
 ```
 
 - Each hosted environment has a `[remotes.<environment>]` block with its `project_id`. Its `[remotes.<environment>.auth]` block sets `site_url` to the environment's `APP_URL` and `additional_redirect_urls` to `["<APP_URL>/auth/callback"]`.
-- `deploy.yml` applies the file with `supabase config push` (see [Deployment](#deployment)).
+- `pnpm cf:deploy` applies the file with `supabase config push` (see [Deployment](#deployment)).
 - The Supabase CLI maps `[auth.email] enable_signup` to the whole email provider. Turning it off also turns off password sign-in, so it stays on.
 - The `before_user_created` hook blocks email sign-up instead. Supabase Auth calls `auth_hooks.before_user_created` before it creates a user through sign-up, a magic link, an anonymous sign-in, or an OAuth provider. The hook allows only `google` and rejects every other provider with HTTP 403. Users created through the admin API skip the hook, so email and password sign-in works only for users that [test sign-in](#test-sign-in) creates with the secret key.
 - `supabase/schemas/auth/` owns the hook. Its schema is `auth_hooks`, because Supabase owns `auth`. Execution is granted only to `supabase_auth_admin`.
-- Locally, the Supabase CLI reads the two Google variables from `supabase/.env`, which is gitignored. CI sets them to placeholder values. No CI test contacts Google.
+- Locally, the Supabase CLI reads the two Google variables from `supabase/.env`, which is gitignored. No test contacts Google.
 
 ### Google OAuth client
 
@@ -335,7 +337,7 @@ The developer creates one Google Cloud OAuth client of type "Web application". I
 
 - The consent screen audience is External, and its publishing status is "In production". In "Testing", only listed test users can sign in.
 - The authorized redirect URIs are `https://<project-ref>.supabase.co/auth/v1/callback` for each hosted Supabase project and `http://127.0.0.1:54321/auth/v1/callback` for the local stack.
-- The client ID and secret are the GitHub environment secrets `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` and `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET`, and the same names in `supabase/.env`.
+- The client ID and secret are the Workers Builds build secrets `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` and `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET`, and the same names in `supabase/.env`.
 - The consent screen names `<project-ref>.supabase.co`, not the app. Changing that is the branded consent [deferred extension](#deferred-extensions).
 
 ### Test sign-in
@@ -921,7 +923,7 @@ It contains no rules. The exact TanStack Start server-entry API follows the pinn
 - `workflows`: one entry named `agent-chat`, binding `AGENT_CHAT_WORKFLOW`, class `AgentChatWorkflow`.
 - `triggers.crons`: `["* * * * *"]`.
 - `vars`: `ENVIRONMENT_ID`, `APP_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `LLM_BASE_URL`, `LLM_MODEL`.
-- Secrets, set with `wrangler secret put`: `SUPABASE_SECRET_KEY` and `LLM_API_KEY`.
+- Secrets, set once per Worker with `wrangler secret put <NAME> --name touch-grass-<environment>` or in the dashboard: `SUPABASE_SECRET_KEY` and `LLM_API_KEY`. They persist across deploys, and the deploy never uploads them.
 
 ### Environment parsing
 
@@ -1096,7 +1098,7 @@ Fixtures under `tools/boundary-enforcement/fixtures/` prove each check, and `too
 
 The journeys use no module mocks or in-process stubs. The Worker runs from its production bundle in workerd, the open-source runtime Cloudflare deploys, with Miniflare's local Workflows engine and cron trigger route. Supabase runs from the CLI's containers. Only the two services outside the stack are replaced: the LLM provider by the provider double over HTTP, and Google sign-in by `signInAs` against the real Supabase Auth. Plan limits, edge placement, and the production cron scheduler cannot be reproduced locally.
 
-CI runs the journeys with the provider double. A separate live smoke test, run by `pnpm verify:deployed`, sends a real message to the configured LLM provider and confirms its run completes.
+`pnpm test:e2e` runs the journeys with the provider double. A separate live smoke test, run by `pnpm verify:deployed`, sends a real message to the configured LLM provider and confirms its run completes.
 
 ### Required proofs
 
@@ -1152,7 +1154,8 @@ Each row is at least one integration or database test. One case is a unit test i
 | `pnpm test:db:races` | Concurrent admission, capacity, and terminal-order races in `tests/database/races.ts` |
 | `pnpm test:e2e` | Builds the app and runs the Playwright journeys against `vite preview`. `EXTERNAL_APP=1` aims them at an already running server instead. |
 | `pnpm check:bundle` | Production build and client-bundle inspection |
-| `pnpm check` | Everything above against a freshly reset local database, then `db:types` with a failure on any diff. CI runs this. |
+| `pnpm check` | Everything above against a freshly reset local database, then `db:types` with a failure on any diff. |
+| `pnpm cf:deploy` | The Workers Builds deploy command. It applies migrations and Auth configuration, then deploys the Worker. |
 | `pnpm verify:deployed --env <name>` | Live checks against a deployed Wrangler environment |
 | `pnpm db:reset`, `pnpm db:diff <name>`, `pnpm db:types` | Local database reset, migration generation, type generation |
 
@@ -1163,36 +1166,59 @@ Each row is at least one integration or database test. One case is a unit test i
 | Each file edit | None | No interruption |
 | Optional `PostToolUse` hook in `tools/hooks/` | Targeted fast checks on the edited file | Feedback only. Never required for correctness. |
 | Before an agent reports completion | `pnpm check:fast`, `pnpm typecheck`, and the tests of every changed feature. Add `pnpm test:db` after a schema change. | The agent fixes failures, with bounded repair attempts |
-| Pull request | `pnpm check` in CI | Mandatory, blocking |
-| Merge to `main` | `deploy.yml` | Migrate, deploy, `verify:deployed` |
+| Pull request | `pnpm check:fast` in CI | Shown as a check on the pull request |
+| Push to `main` or `production` | Workers Builds runs `pnpm build` and `pnpm cf:deploy` for that branch's Worker | Migrate and deploy. No GitHub workflow runs. |
+| After each deploy | `pnpm verify:deployed --env <name>`, run by a person or an agent | A deployment is unverified until it passes |
 
 If a check cannot run, report it as not run. Never claim success without it.
 
 ### CI
 
-- `ci.yml` installs the pinned pnpm and dependencies, starts the local Supabase stack, and runs `pnpm check`. It runs on every pull request and blocks merging on failure.
-- `deploy.yml` runs on `main` behind a GitHub environment with required approval for production. It applies migrations with `supabase db push`, applies Auth configuration with `supabase config push`, deploys with `wrangler deploy`, and runs `pnpm verify:deployed`. A deployment with unrun or failing verification is reported as `unverified`.
+- `ci.yml` installs the pinned pnpm and dependencies and runs `pnpm check:fast` on every pull request. The pull request shows the result as a check.
+- `ci.yml` needs no secrets and no Docker. GitHub runs no deploy workflow.
 
 ## Environments and deployment
 
 ### Environments
 
-Each deployed environment is a named environment in `wrangler.jsonc` (`dev` and `production`). Its `vars` hold its nonsecret settings. CI holds each environment's Supabase project reference and secrets as GitHub environment secrets.
+Each deployed environment is a named environment in `wrangler.jsonc` (`dev` and `production`). Its `vars` hold its nonsecret settings. Each environment has one Worker, `touch-grass-dev` or `touch-grass-production`, connected to the repository in Workers Builds.
+
+| Setting | `dev` | `production` |
+|---|---|---|
+| Production branch | `main` | `production` |
+| Builds for non-production branches | Off | Off |
+| Build command | `pnpm build` | `pnpm build` |
+| Deploy command | `pnpm cf:deploy` | `pnpm cf:deploy` |
+| Build variables | `CLOUDFLARE_ENV=dev`, `PNPM_VERSION=11.25.0` | `CLOUDFLARE_ENV=production`, `PNPM_VERSION=11.25.0` |
+| Build secrets | `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_URL`, `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID`, `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET` | The same names with the production values |
+
+- `CLOUDFLARE_ENV` makes the Vite plugin write the environment's name, bindings, and vars into `dist/server/wrangler.json`. `wrangler deploy` reads that redirected config, so the deploy never passes `--env`.
+- `PNPM_VERSION` is set because the build image defaults to pnpm 10.11.1. Node comes from `.node-version`.
+- Preview builds are off because a preview version would run against a database whose migrations have not run.
+- `SUPABASE_DB_URL` is the project's Supavisor session-mode pooler string, with port 5432, the user `postgres.<project-ref>`, and a percent-encoded password. The direct `db.<project-ref>.supabase.co` host is IPv6 only on Free, and build containers are not known to have IPv6. The project reference is not a secret. `pnpm cf:deploy` derives it from the environment's `SUPABASE_URL`.
+- The runtime secrets `SUPABASE_SECRET_KEY` and `LLM_API_KEY` are Worker secrets, not build secrets.
 
 ### Deployment
 
-1. Apply migrations from the ledger with the pinned Supabase CLI.
-2. Apply `supabase/config.toml` with `supabase config push` using the pinned Supabase CLI. It runs after the migrations because it enables the `before_user_created` hook, which calls a migrated function.
-3. Deploy the Worker with the pinned Wrangler.
-4. Run `pnpm verify:deployed --env <name>`.
+A push to `main` deploys `dev`. A push to `production` deploys `production`. Releasing production is `git push origin main:production`, a fast-forward. Workers Builds then runs `pnpm cf:deploy` with `tools/deploy.ts`, which stops at the first failure.
 
-After a lost response at any step, inspect the migration history or the deployed version before retrying. Supply secrets through Wrangler and Supabase secret management. Never write a secret into code, logs, commits, or agent output.
+1. Require `CLOUDFLARE_ENV` to name an environment in `wrangler.jsonc`.
+2. Refuse placeholder settings for that environment.
+3. Derive the project reference from `SUPABASE_URL`, and require a `[remotes.<environment>]` block in `supabase/config.toml` with that `project_id`. Without a match, `supabase config push` would push the local `localhost` Auth URLs.
+4. Require the four build secrets, and name any that are missing.
+5. Apply migrations from the ledger with `supabase db push --db-url`.
+6. Apply `supabase/config.toml` with `supabase config push`. It runs after the migrations because it enables the `before_user_created` hook, which calls a migrated function.
+7. Deploy the Worker with the pinned Wrangler.
+
+Workers Builds does not run `pnpm verify:deployed --env <name>`. A person or an agent runs it after each deploy, with `SUPABASE_SECRET_KEY` in the shell. A deployment is unverified until it passes.
+
+After a lost response at any step, inspect the migration history or the deployed version before retrying. Supply secrets through Wrangler and Supabase secret management. Never write a secret into code, logs, commits, or agent output. Build secrets reach every build command, so keep dependencies pinned.
 
 ### Isolation
 
-- Development, CI, and production use separate Supabase projects or branches, separate Worker names, and separate LLM API keys.
+- Development and production use separate Supabase projects or branches, separate Worker names, and separate LLM API keys.
 - A test run owns its Auth users, Storage prefixes, Workflow instance IDs, and data.
-- Ordinary development needs no local containers. Container-backed local Supabase runs in CI and where Docker exists.
+- Ordinary development needs no local containers. Container-backed local Supabase runs where Docker exists.
 - Never reset a production database or another developer's database. If no safe target exists, the check reports the missing capability and stops.
 
 ### Free-tier constraints
@@ -1200,6 +1226,7 @@ After a lost response at any step, inspect the migration history or the deployed
 - Target Cloudflare Free and Supabase Free. Never require a paid plan silently.
 - Avoid always-on compute. Keep Workflow steps small and I/O-bound.
 - Workflows on Workers Free allow 1,024 steps per instance, 100 concurrent instances per account, 10 ms of CPU per step, and 3 days of retention, according to Cloudflare's limits page at the time of writing. `ACTIVE_RUNS_PER_ENVIRONMENT` stays below the concurrency limit.
+- Workers Builds on Free allows 3,000 build minutes per month, 1 concurrent build per account, and a 20-minute build timeout, according to Cloudflare's limits page at the time of writing. The two Workers share the one concurrent build.
 - Supabase Free projects pause after inactivity. `verify:deployed` reports a paused project as a failed prerequisite.
 - `verify:deployed` reads `<SUPABASE_URL>/auth/v1/settings` and reports a disabled Google provider as a failed prerequisite.
 - LLM spend is the only external cost. Google sign-in is free. The README of the generated app lists the cost.
@@ -1268,7 +1295,7 @@ Build in these units. Each unit's checks pass before the next unit depends on it
 2. **Auth, account, and database pattern.** Auth configuration, Google sign-in, the callback route, test sign-in, the account feature with its schemas, roles, routines, and grants. Gate: auth and account E2E, and the two-user access tests.
 3. **Agent Chat persistence and model.** Conversation, run, and turn tables and routines, admission, the agent-turn write boundary, block parsing and `blocksFromAgentItems`, the agent definition and `calculate`, `toAgentInput`, the checks, the model provider and error classification, and the constants test. Gate: every required proof that needs no Workflow.
 4. **Durable execution.** The Workflow adapter and `DurableModel`, the runner, the sweep, the chat UI, `src/server.ts` wiring, and `wrangler.jsonc`. Gate: the dispatch, replay, recovery, and stop proofs, and the chat E2E.
-5. **Shell, CI, and deployment.** App shell polish, `ci.yml`, `deploy.yml`, Wrangler environments, `verify:deployed`, `AGENTS.md`, the generated `ARCHITECTURE.md`, and bundled skills. Gate: a deployed environment passes `verify:deployed`, including the live provider smoke test.
+5. **Shell, CI, and deployment.** App shell polish, `ci.yml`, `tools/deploy.ts`, Wrangler environments, `verify:deployed`, `AGENTS.md`, the generated `ARCHITECTURE.md`, and bundled skills. Gate: a deployed environment passes `verify:deployed`, including the live provider smoke test.
 
 ## Acceptance criteria
 
@@ -1282,7 +1309,7 @@ The template is complete when all of these hold:
 - Every rule in [Rule checks](#rule-checks) has its named check or proof, and every mechanically checked rule has a negative fixture.
 - The committed `ARCHITECTURE.md` matches a fresh render of `policy.ts`, and the template does not ship this specification.
 - Declarative SQL is grouped by owner under `supabase/schemas/`, and migrations replay from Git into an empty database.
-- `pnpm check` passes in CI.
+- `pnpm check` passes locally, and `pnpm check:fast` passes in CI.
 - A deployed environment passes `pnpm verify:deployed`.
 - Optional hooks work where supported and nothing depends on them.
 - The generated app's README lists free-tier limits and external costs.
@@ -1304,7 +1331,7 @@ These questions need evidence from the pinned versions before their unit's gate.
 - Does the Workers Free CPU limit for Workflow steps (10 ms per step at the time of writing) hold for replaying the SDK loop and parsing a 256 KB response?
 - Can Vitest with `@cloudflare/vitest-pool-workers` run the Workflow and the provider double with crash and failure injection?
 - Does the hosted Supabase `postgres` role allow creating the `nologin` committer role, granting it to `postgres`, and transferring function ownership as written?
-- Does `supabase config push` apply the `[remotes.<environment>]` Auth overrides and resolve the Google `env()` values? If not, `deploy.yml` sets the same values through the Supabase Management API auth config endpoint.
+- Does `supabase config push` apply the `[remotes.<environment>]` Auth overrides and resolve the Google `env()` values? If not, `tools/deploy.ts` sets the same values through the Supabase Management API auth config endpoint.
 - Does `auth.signInWithPassword` succeed for an admin-created user while `[auth.email] enable_signup = false`? No. Supabase Auth v2.197.0 returns "Email logins are disabled". [Auth configuration](#auth-configuration) keeps the email provider on and blocks email sign-up with the `before_user_created` hook.
 - Does `startGoogleSignIn` through `@supabase/ssr` on Workers store the PKCE verifier cookie that `/auth/callback` reads?
-- Do the free plans handle the CPU, Workflow concurrency, cron schedule, storage, step counts, and CI workload for the reference journeys? Record run counts, spread, and the limiting resource for every measurement.
+- Do the free plans handle the CPU, Workflow concurrency, cron schedule, storage, and step counts for the reference journeys? Record run counts, spread, and the limiting resource for every measurement.
