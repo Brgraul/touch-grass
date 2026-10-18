@@ -193,4 +193,4 @@ The template keeps no spend ledger. These limits bound the spend.
 
 ## Bundled agent skills
 
-`.agents/skills/` holds version-pinned copies of `systematic-debugging` and `verification-before-completion` from Superpowers and `react-best-practices` from Vercel, plus a `touch-grass` skill that verifies this repository. `.agents/skills/UPSTREAM.md` lists each source, its pinned commit, and how to verify the copies.
+`.agents/skills/` holds unchanged copies of pstack, `grill-me` and `grilling`, `show-me`, and `vercel-react-best-practices`, each pinned to a commit in `skills-lock.json`. `pnpm check:repo` fails when a copy differs from the hash recorded there. Two skills are maintained in this repository: `touch-grass` verifies it, and `evals`, adapted from Anthropic's eval guides, builds, audits, and improves against evals of its LLM features. `.agents/skills/UPSTREAM.md` lists each source and how to restore, add, or update a skill.

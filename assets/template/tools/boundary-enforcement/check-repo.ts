@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
@@ -15,6 +16,8 @@ const manifestSchema = z.object({
 });
 
 const wranglerSchema = z.object({ env: z.record(z.string(), z.object({ vars: z.object({ APP_URL: z.string() }) })).default({}) });
+
+const skillLockSchema = z.object({ skills: z.record(z.string(), z.object({ ref: z.string().optional(), computedHash: z.string() })) });
 
 const exactVersion = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
@@ -65,7 +68,43 @@ function checkAuthUrls(wrangler: string, toml: string): Diagnostic[] {
   return diagnostics;
 }
 
-export function checkRepoFiles(files: ReadonlyMap<string, string>, baseMigrations: ReadonlyMap<string, string> = new Map()): Diagnostic[] {
+// Mirrors computeSkillFolderHash in the skills CLI, which hashes the upstream folder, so a copy matches only when it is byte for byte upstream.
+function skillFolderHash(files: ReadonlyMap<string, Uint8Array>, prefix: string): string | undefined {
+  const entries = [...files].flatMap(([path, content]) => path.startsWith(prefix) ? [[path.slice(prefix.length), content] as const] : []).sort(([a], [b]) => a.localeCompare(b));
+
+  if (entries.length === 0) return undefined;
+  const hash = createHash('sha256');
+
+  for (const [path, content] of entries) hash.update(path).update(content);
+
+  return hash.digest('hex');
+}
+
+function checkVendoredSkills(lock: string, files: ReadonlyMap<string, Uint8Array>): Diagnostic[] {
+  let json: unknown;
+
+  try {
+    json = JSON.parse(lock);
+  } catch {
+    json = undefined;
+  }
+
+  const parsed = skillLockSchema.safeParse(json);
+
+  if (!parsed.success) return [{ rule: 'vendored-skill', path: 'skills-lock.json', message: 'Could not read skills.<name>.computedHash' }];
+
+  return Object.entries(parsed.data.skills).flatMap(([name, entry]): Diagnostic[] => {
+    const path = `.agents/skills/${name}`;
+
+    if (!/^[0-9a-f]{40}$/.test(entry.ref ?? '')) return [{ rule: 'vendored-skill', path: 'skills-lock.json', message: `${name} must be pinned to a full commit SHA. Install it from a GitHub tree URL that names the commit` }];
+
+    if (skillFolderHash(files, `${path}/`) !== entry.computedHash) return [{ rule: 'vendored-skill', path, message: 'Files differ from the hash recorded in skills-lock.json. Never edit a vendored skill; reinstall it as .agents/skills/UPSTREAM.md describes, or put local changes in a new skill' }];
+
+    return [];
+  });
+}
+
+export function checkRepoFiles(files: ReadonlyMap<string, string>, baseMigrations: ReadonlyMap<string, string> = new Map(), skillFiles: ReadonlyMap<string, Uint8Array> = new Map()): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const report = (rule: string, path: string, message: string) => diagnostics.push({ rule, path, message });
   const manifest = manifestSchema.safeParse(JSON.parse(files.get('package.json') ?? '{}'));
@@ -115,6 +154,9 @@ export function checkRepoFiles(files: ReadonlyMap<string, string>, baseMigration
   const config = files.get('supabase/config.toml');
 
   if (wrangler !== undefined && config !== undefined) diagnostics.push(...checkAuthUrls(wrangler, config));
+  const skillLock = files.get('skills-lock.json');
+
+  if (skillLock !== undefined) diagnostics.push(...checkVendoredSkills(skillLock, skillFiles));
 
   return diagnostics;
 }
@@ -137,6 +179,24 @@ export function repositoryFiles(root: string): Map<string, string> {
   return files;
 }
 
+// Raw bytes under .agents/skills, walked with the skills CLI's rules: regular files only, skipping .git and node_modules.
+export function skillFolderFiles(root: string): Map<string, Uint8Array> {
+  const files = new Map<string, Uint8Array>();
+
+  const walk = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+
+      if (entry.isDirectory() && !['.git', 'node_modules'].includes(entry.name)) walk(path);
+      else if (entry.isFile()) files.set(relative(root, path).split('\\').join('/'), readFileSync(path));
+    }
+  };
+
+  if (existsSync(join(root, '.agents/skills'))) walk(join(root, '.agents/skills'));
+
+  return files;
+}
+
 export function baselineMigrations(root: string, base = process.env.GITHUB_BASE_REF ? `origin/${process.env.GITHUB_BASE_REF}` : 'origin/main'): Map<string, string> {
   const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   const top = git('rev-parse', '--show-toplevel').trimEnd();
@@ -150,7 +210,7 @@ export function baselineMigrations(root: string, base = process.env.GITHUB_BASE_
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
     const root = process.cwd();
-    const diagnostics = checkRepoFiles(repositoryFiles(root), baselineMigrations(root, process.env.MIGRATION_BASE_REF));
+    const diagnostics = checkRepoFiles(repositoryFiles(root), baselineMigrations(root, process.env.MIGRATION_BASE_REF), skillFolderFiles(root));
 
     for (const diagnostic of diagnostics) process.stderr.write(`${diagnostic.path} ${diagnostic.rule}: ${diagnostic.message}\n`);
 

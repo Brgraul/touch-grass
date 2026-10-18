@@ -465,6 +465,84 @@
     "expected": []
   },
   {
+    "id": "repo-vendored-skill-pristine",
+    "kind": "repo",
+    "files": {
+      "skills-lock.json": "{\"version\":1,\"skills\":{\"demo\":{\"source\":\"owner/repo\",\"ref\":\"0123456789abcdef0123456789abcdef01234567\",\"sourceType\":\"github\",\"computedHash\":\"b6711b31db07aee186435dab38fece02b9195a48cbf3625adef89bd678d2f1f4\"}}}",
+      ".agents/skills/demo/SKILL.md": "---\nname: demo\ndescription: Demo.\n---\n"
+    },
+    "expected": []
+  },
+  {
+    "id": "repo-vendored-skill-edited",
+    "kind": "repo",
+    "files": {
+      "skills-lock.json": "{\"version\":1,\"skills\":{\"demo\":{\"source\":\"owner/repo\",\"ref\":\"0123456789abcdef0123456789abcdef01234567\",\"sourceType\":\"github\",\"computedHash\":\"b6711b31db07aee186435dab38fece02b9195a48cbf3625adef89bd678d2f1f4\"}}}",
+      ".agents/skills/demo/SKILL.md": "---\nname: demo\ndescription: Demo, edited in place.\n---\n"
+    },
+    "expected": [
+      {
+        "rule": "vendored-skill",
+        "path": ".agents/skills/demo"
+      }
+    ]
+  },
+  {
+    "id": "repo-vendored-skill-extra-file",
+    "kind": "repo",
+    "files": {
+      "skills-lock.json": "{\"version\":1,\"skills\":{\"demo\":{\"source\":\"owner/repo\",\"ref\":\"0123456789abcdef0123456789abcdef01234567\",\"sourceType\":\"github\",\"computedHash\":\"b6711b31db07aee186435dab38fece02b9195a48cbf3625adef89bd678d2f1f4\"}}}",
+      ".agents/skills/demo/SKILL.md": "---\nname: demo\ndescription: Demo.\n---\n",
+      ".agents/skills/demo/dist/injected.js": "export {};\n"
+    },
+    "expected": [
+      {
+        "rule": "vendored-skill",
+        "path": ".agents/skills/demo"
+      }
+    ]
+  },
+  {
+    "id": "repo-vendored-skill-missing",
+    "kind": "repo",
+    "files": {
+      "skills-lock.json": "{\"version\":1,\"skills\":{\"demo\":{\"source\":\"owner/repo\",\"ref\":\"0123456789abcdef0123456789abcdef01234567\",\"sourceType\":\"github\",\"computedHash\":\"b6711b31db07aee186435dab38fece02b9195a48cbf3625adef89bd678d2f1f4\"}}}"
+    },
+    "expected": [
+      {
+        "rule": "vendored-skill",
+        "path": ".agents/skills/demo"
+      }
+    ]
+  },
+  {
+    "id": "repo-vendored-skill-invalid-lock",
+    "kind": "repo",
+    "files": {
+      "skills-lock.json": "<<<<<<< HEAD\n{}\n"
+    },
+    "expected": [
+      {
+        "rule": "vendored-skill",
+        "path": "skills-lock.json"
+      }
+    ]
+  },
+  {
+    "id": "repo-vendored-skill-branch-ref",
+    "kind": "repo",
+    "files": {
+      "skills-lock.json": "{\"version\":1,\"skills\":{\"demo\":{\"source\":\"owner/repo\",\"ref\":\"main\",\"sourceType\":\"github\",\"computedHash\":\"b6711b31db07aee186435dab38fece02b9195a48cbf3625adef89bd678d2f1f4\"}}}",
+      ".agents/skills/demo/SKILL.md": "---\nname: demo\ndescription: Demo.\n---\n"
+    },
+    "expected": [
+      {
+        "rule": "vendored-skill",
+        "path": "skills-lock.json"
+      }
+    ]
+  },
+  {
     "id": "repo-eslint",
     "kind": "repo",
     "files": {

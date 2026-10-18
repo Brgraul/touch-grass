@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { checkSource } from './lint-rules/check-source.ts';
-import { baselineMigrations, checkRepoFiles } from './check-repo.ts';
+import { baselineMigrations, checkRepoFiles, skillFolderFiles } from './check-repo.ts';
 import { checkBoundaries } from './check-boundaries.ts';
 import { browserClosure } from './browser-closure.ts';
 import { checkClientChunks } from './check-client-bundle.ts';
@@ -93,14 +93,16 @@ describe('architecture enforcement fixtures', () => {
           break;
         case 'repo': {
           const files = new Map([['package.json', JSON.stringify(manifest)], ['ARCHITECTURE.md', renderArchitecture()], [initialMigration, 'select 1;\n']]);
+          const skillFiles = new Map<string, Uint8Array>();
 
           for (const [path, content] of Object.entries(fixture.files)) {
             if (content === null) files.delete(path);
+            else if (typeof content === 'string' && path.startsWith('.agents/skills/')) skillFiles.set(path, Buffer.from(content));
             else if (typeof content === 'string') files.set(path, content);
             else files.set(path, JSON.stringify({ ...manifest, dependencies: { ...manifest.dependencies, ...content.dependencies }, devDependencies: { ...manifest.devDependencies, ...content.devDependencies } }));
           }
 
-          diagnostics = checkRepoFiles(files, baseline);
+          diagnostics = checkRepoFiles(files, baseline, skillFiles);
           break;
         }
 
@@ -174,6 +176,16 @@ describe('architecture enforcement fixtures', () => {
     expect(baselineMigrations(root, 'HEAD').get(initialMigration)).toBe(sql);
     expect(baselineMigrations(join(root, 'assets/template'), 'HEAD').get(initialMigration)).toBe('select 2;\n');
     expect(() => baselineMigrations(root, 'missing-base')).toThrow();
+  });
+
+  it('hashes every regular file in a vendored skill as the skills CLI does', () => {
+    const root = temporaryDirectory();
+    write(root, '.agents/skills/demo/SKILL.md', '---\nname: demo\ndescription: Demo.\n---\n');
+    write(root, '.agents/skills/demo/dist/logo.png', '\u0089PNG');
+    write(root, '.agents/skills/demo/node_modules/ignored.js', 'ignored');
+    symlinkSync(join(root, '.agents/skills/demo/SKILL.md'), join(root, '.agents/skills/demo/link.md'));
+
+    expect([...skillFolderFiles(root).keys()].sort()).toEqual(['.agents/skills/demo/SKILL.md', '.agents/skills/demo/dist/logo.png']);
   });
 
   it('derives the browser allowlist from the committed lockfile', () => {

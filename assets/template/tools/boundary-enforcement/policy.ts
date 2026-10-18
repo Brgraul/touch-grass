@@ -71,6 +71,7 @@ export const rules = [
   { id: 'migration-ledger', check: 'check-repo', text: 'Applied migrations never change or disappear. New migrations sort after the base branch ledger.' },
   { id: 'auth-urls', check: 'check-repo', text: 'Each wrangler.jsonc environment APP_URL matches the site_url and callback URL in its [remotes.<environment>.auth] block of supabase/config.toml.' },
   { id: 'generated-architecture', check: 'check-repo', text: 'ARCHITECTURE.md exactly matches the policy renderer.' },
+  { id: 'vendored-skill', check: 'check-repo', text: 'Each skill in skills-lock.json is pinned to a commit and matches its recorded upstream hash.' },
   { id: 'database-types', check: 'pnpm check', text: 'Database types are regenerated after the isolated reset and fail on a diff.' },
   { id: 'exhaustive-blocks', check: 'tsc', text: 'Turn rendering uses an exhaustive never check for all stored block kinds.' },
   { id: 'ownership-sql', check: 'two-user SQL and E2E proofs', text: 'Verified sessions supply owner IDs. RLS owns reads and each mutation routine owns write authorization.' },

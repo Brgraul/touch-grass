@@ -81,6 +81,7 @@ Emitted browser chunks may also contain the dependency closure of the browser pa
 | migration-ledger | check-repo | Applied migrations never change or disappear. New migrations sort after the base branch ledger. |
 | auth-urls | check-repo | Each wrangler.jsonc environment APP_URL matches the site_url and callback URL in its [remotes.<environment>.auth] block of supabase/config.toml. |
 | generated-architecture | check-repo | ARCHITECTURE.md exactly matches the policy renderer. |
+| vendored-skill | check-repo | Each skill in skills-lock.json is pinned to a commit and matches its recorded upstream hash. |
 | database-types | pnpm check | Database types are regenerated after the isolated reset and fail on a diff. |
 | exhaustive-blocks | tsc | Turn rendering uses an exhaustive never check for all stored block kinds. |
 | ownership-sql | two-user SQL and E2E proofs | Verified sessions supply owner IDs. RLS owns reads and each mutation routine owns write authorization. |

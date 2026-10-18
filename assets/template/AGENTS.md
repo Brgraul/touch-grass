@@ -8,3 +8,8 @@
 - Keep feature tests, including E2E, in the feature directory.
 - Prefer meaningful E2E and integration tests over trivial unit tests.
 - Before reporting completion, run `pnpm check:fast`, `pnpm typecheck`, and the changed features' tests, and fix every failure.
+
+## Skills
+
+- Use the `poteto-mode` skill when a task touches more than one file or changes a signature other files call, involves a design or architecture choice, or is a bug with an unknown cause or a performance issue. Work smaller tasks directly and verify them on the real artifact.
+- Use the `evals` skill to build, audit, or improve against an eval of an LLM feature.
