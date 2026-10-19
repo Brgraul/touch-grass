@@ -1,16 +1,14 @@
 ---
 name: touch-grass
-description: Bootstrap an empty project directory from the bundled template into a private GitHub repository and verify it on this machine. In a generated repository, route to its local verification skill. When the person asks for a hosted, staging or deployed app, guide them through a staging environment (Supabase, Google sign-in, LLM key, Cloudflare Worker) deployed from this machine.
+description: Initialize an empty repository for batteries-on agentic coding, verify it on this machine, and deploy it to a working staging environment. 
 ---
 
-# Bootstrap and verify
+Initialize an empty repository from the bundled template, verify it on this machine, and deploy it to a working staging environment.
 
-The default scope is a private GitHub repository on `main`, the committed template, and four repository checks on this machine. A staging environment is a separate request. For one, read [staging.md](references/staging.md).
+1. **Bootstrap.** From the repository root, run `scripts/tg run --json` and act on what it reports: install named missing tools, fix named failures, or follow a waiting step's instructions. Rerun it until it exits 0 with `"provisioning": "complete"`.
+2. **Verify.** Run `scripts/tg verify --json`. If it errors, fix the cause, and rerun until it exits 0 with `"verification": "complete"`.
+3. **Deploy.** Read [staging.md](references/staging.md) and follow it.
 
-1. Resolve the directory containing **this loaded SKILL.md**, following its installation symlink to the source checkout. Call it `SKILL`. Use absolute, quoted paths to `"$SKILL/scripts/tg"`; the helper is not on PATH. Bootstrap ships the template from `$SKILL/assets/template.bundle`. Node >=22.23 is required. Discover or repair missing tools with the supported package manager before running TypeScript.
-2. Never bootstrap the Touch Grass source checkout itself. From the target directory run `"$SKILL/scripts/tg" route --json`. A `bootstrap` result continues the workflow below, including an interrupted bootstrap. A `verify` result names the repository-local skill to read and execute instead of provisioning. A staging request in a generated repository goes to the staging reference whatever the route says. Routing creates nothing, and its result is not verification evidence.
-3. From the target directory run `"$SKILL/scripts/tg" status --json`, then `"$SKILL/scripts/tg" run --json`. These helpers use a private manifest and journal, preserve unrelated files, pin committed source blobs and bind the remote identity. Exit 2 means incomplete. Repair a named dependency or authentication problem, complete the `agent` actions it reports, and rerun. Stop retrying a conflict or uncertain resource creation until its cause is resolved. Keep user files and the creation receipt intact.
-4. For authentication, use an existing CLI session first. Otherwise start the vendor login in a terminal tab the person can see and open its browser page yourself. Continue until the next action needs the person's account choice, password, OAuth approval or billing decision. Name that exact gate, then resume after it. Never ask for credentials in chat.
-5. Once GitHub is published, `tg run` reports `local-verification` waiting. Read and execute the generated repository's `.agents/skills/touch-grass/SKILL.md` on this machine. `pnpm check` needs Docker running and Google Chrome. Install missing ones with the supported package manager; starting Docker Desktop the first time or accepting its terms is the person's gate. Record each of repository access, frozen install, build and full check as `passed`, `failed` or `not run`. On a failure, fix the cause first, commit any repository fix, then rerun all four checks at the new HEAD. Never rerun an unchanged failure hoping it passes. Exit 2 or a missing tool leaves verification incomplete.
+When a step needs the human driver's intervention, such as signing in or starting Docker Desktop, open the terminal tab or page yourself and name that exact gate. Never ask for credentials in chat.
 
-Report the repository URL and three separate states. **Provisioning** is complete or pending at a named gate. **Verification** lists all four results and the tested commit. **Deployment** is not configured unless staging ran; then give its URL, the deployed verifier result and the acceptance journey. Claim setup complete only when all four checks passed at the reported commit.
+Report the `origin` URL, the four check results from the `pnpm verify` summary with the tested commit, and the staging report that staging.md describes. Claim setup complete only when all four checks passed and the staging verifier and acceptance journey passed.

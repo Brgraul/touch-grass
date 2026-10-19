@@ -51,6 +51,7 @@ To sign in with Google on your machine, add `http://127.0.0.1:54321/auth/v1/call
 | `pnpm test:e2e` | Builds the app and runs the Playwright journeys against it in workerd |
 | `pnpm check:bundle` | Production build and client-bundle inspection |
 | `pnpm check` | Every step above against a freshly reset local database, then `db:types` with a failure on any diff. |
+| `pnpm verify` | Repository access, `pnpm install --frozen-lockfile`, `pnpm build`, then `pnpm check`. See [Verify a checkout](#verify-a-checkout). |
 | `pnpm cf:deploy` | Applies migrations and Auth configuration, then deploys the Worker. Workers Builds runs it. See [Deploy and verify](#deploy-and-verify). |
 | `pnpm verify:deployed --env <name>` | Live checks against a deployed environment, or `local` |
 | `pnpm db:reset`, `pnpm db:diff <name>`, `pnpm db:types` | Reset the local database, generate a migration, regenerate database types |
@@ -63,6 +64,12 @@ To sign in with Google on your machine, add `http://127.0.0.1:54321/auth/v1/call
 If any step did not run, `pnpm check` exits with code 2 and prints `INCOMPLETE`. Treat that as a failure to verify, not as a pass. Pass `--skip <step,step>` or `--only <step,step>` to choose steps, and `--list` to print their names.
 
 `pnpm check` starts the provider double itself when nothing listens on port 4010. It writes a temporary `.dev.vars` when none exists and removes it afterward.
+
+### Verify a checkout
+
+`pnpm verify` proves a clean checkout works. It runs four checks in order: repository access (`package.json`, `wrangler.jsonc` and `git ls-remote --exit-code origin HEAD`), `pnpm install --frozen-lockfile`, `pnpm build`, and `pnpm check`. It stops at the first failure and prints each check as `passed`, `failed`, or `not run`, with the tested commit.
+
+A missing `origin`, a stopped Docker, or an incomplete `pnpm check` reports `not run`, and `pnpm verify` exits with code 2. Treat that as a failure to verify. It runs on plain Node, so it works before the first install. It never provisions or deploys anything.
 
 ### Run the E2E journeys
 
@@ -161,7 +168,7 @@ Workers Builds deploys. A push to `main` builds and deploys `touch-grass-dev`. A
 2. Stops if `wrangler.jsonc` still holds a placeholder for that environment.
 3. Derives the project reference from `SUPABASE_URL`, and requires `supabase/config.toml` to have a `[remotes.<environment>]` block with that `project_id`.
 4. Requires the four build secrets. It lists missing names and never prints a value.
-5. Applies the migration ledger with `supabase db push --db-url`. Migrations go first because the Auth configuration enables a hook that calls a migrated function.
+5. Applies the migration ledger with `supabase db push --db-url`. Migrations go first because the Auth configuration enables a hook that calls a migrated function. The database URL is a command-line argument, so other users of a shared machine can see it in the process list.
 6. Applies `supabase/config.toml` with `supabase config push`.
 7. Deploys the Worker with `wrangler deploy`.
 
@@ -234,4 +241,4 @@ The template keeps no spend ledger. These limits bound the spend.
 
 ## Bundled agent skills
 
-`.agents/skills/` holds unchanged copies of pstack, `grill-me` and `grilling`, `show-me`, and `vercel-react-best-practices`, each pinned to a commit in `skills-lock.json`. `pnpm check:repo` fails when a copy differs from the hash recorded there. Two skills are maintained in this repository: `touch-grass` verifies it, and `evals`, adapted from Anthropic's eval guides, builds, audits, and improves against evals of its LLM features. `.agents/skills/UPSTREAM.md` lists each source and how to restore, add, or update a skill.
+`.agents/skills/` holds unchanged copies of pstack, `grill-me` and `grilling`, `show-me`, and `vercel-react-best-practices`, each pinned to a commit in `skills-lock.json`. `pnpm check:repo` fails when a copy differs from the hash recorded there. One skill is maintained in this repository: `evals`, adapted from Anthropic's eval guides, builds, audits, and improves against evals of its LLM features. `.agents/skills/UPSTREAM.md` lists each source and how to restore, add, or update a skill.

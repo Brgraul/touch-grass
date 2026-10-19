@@ -7,6 +7,9 @@ export const groups = ['provisioning', 'deployment', 'verification'] as const;
 
 export type Group = (typeof groups)[number];
 
+/** The command whose run applies a group's script steps. */
+export const commands: Record<Group, string> = { provisioning: 'tg run', verification: 'tg verify', deployment: 'tg staging' };
+
 type StepBase = {
   id: string;
   group: Group;
@@ -35,7 +38,8 @@ function failure(error: unknown): string {
   return 'Operation failed. Inspect local state privately before retrying.';
 }
 
-export async function evaluate(steps: readonly Step[], project: Project, mode: 'status' | 'run'): Promise<Outcome[]> {
+/** Observes every step and applies ready script steps only in the `apply` groups. The rest report `ready` for their own command. */
+export async function evaluate(steps: readonly Step[], project: Project, apply: readonly Group[]): Promise<Outcome[]> {
   validateSteps(steps);
   const outcomes = new Map<string, Outcome>();
 
@@ -53,7 +57,7 @@ export async function evaluate(steps: readonly Step[], project: Project, mode: '
 
       if (seen.done) outcomes.set(step.id, { ...base, state: 'done', summary: seen.summary });
       else if (step.actor !== 'script') outcomes.set(step.id, { ...base, state: 'waiting', actor: step.actor, instructions: step.instructions(project), summary: seen.summary });
-      else if (mode === 'status') outcomes.set(step.id, { ...base, state: 'ready', summary: seen.summary });
+      else if (!apply.includes(step.group)) outcomes.set(step.id, { ...base, state: 'ready', summary: seen.summary });
       else {
         process.stderr.write(`tg: ${step.id}: ${step.title}\n`);
         await step.apply(project);
@@ -73,8 +77,9 @@ export async function evaluate(steps: readonly Step[], project: Project, mode: '
 const marks = { done: '✓', ready: '○', waiting: '→', blocked: '·', failed: '✗' } as const;
 
 export function render(project: Project, outcomes: readonly Outcome[]): string {
+  const ready = [...new Set(outcomes.flatMap(outcome => (outcome.state === 'ready' ? [commands[outcome.group]] : [])))];
   const width = Math.max(0, ...outcomes.map(outcome => outcome.id.length));
-  const lines = [`touch-grass: ${project.slug} (${project.root})`];
+  const lines = [`touch-grass: ${project.root}`];
 
   for (const group of groups) {
     const members = outcomes.filter(outcome => outcome.group === group);
@@ -86,7 +91,7 @@ export function render(project: Project, outcomes: readonly Outcome[]): string {
     for (const outcome of members) {
       const detail =
         outcome.state === 'done' ? outcome.summary
-        : outcome.state === 'ready' ? `ready for \`tg run\`${outcome.summary ? `: ${outcome.summary}` : ''}`
+        : outcome.state === 'ready' ? `ready for \`${commands[outcome.group]}\`${outcome.summary ? `: ${outcome.summary}` : ''}`
         : outcome.state === 'waiting' ? `waiting on the ${outcome.actor}${outcome.summary ? `: ${outcome.summary}` : ''}`
         : outcome.state === 'blocked' ? `needs ${outcome.on.join(', ')}`
         : outcome.reason;
@@ -101,17 +106,18 @@ export function render(project: Project, outcomes: readonly Outcome[]): string {
     if (outcome.state === 'waiting') lines.push('', `Next, ${outcome.id} (${outcome.actor}):`, outcome.instructions.trim());
   }
 
-  if (failed.length > 0) lines.push('', `Failed: ${failed.map(outcome => outcome.id).join(', ')}. Fix the cause named above, then run \`tg run\` again.`);
-  else if (waiting.length === 0 && outcomes.some(outcome => outcome.state === 'ready')) lines.push('', 'Run `tg run`.');
-  else if (exitCode(outcomes) === 0) lines.push('', 'All required checks are complete.');
+  if (failed.length > 0) lines.push('', `Failed: ${failed.map(outcome => outcome.id).join(', ')}. Fix the cause named above, then run \`${commands[failed[0]!.group]}\` again.`);
+  else if (waiting.length === 0 && ready.length > 0) lines.push('', `Run \`${ready[0]}\`.`);
+  else if (outcomes.length > 0 && outcomes.every(outcome => outcome.state === 'done')) lines.push('', 'All steps are complete.');
 
   return lines.join('\n');
 }
 
-export function exitCode(outcomes: readonly Outcome[]): number {
+/** 0 once every step of every `required` group is done, 1 on any failure, 2 while incomplete. */
+export function exitCode(outcomes: readonly Outcome[], required: readonly Group[]): number {
   if (outcomes.some(outcome => outcome.state === 'failed')) return 1;
 
-  return outcomes.length > 0 && outcomes.some(outcome => outcome.group === 'verification') && outcomes.every(outcome => outcome.state === 'done') ? 0 : 2;
+  return required.every(group => outcomes.some(outcome => outcome.group === group)) && outcomes.filter(outcome => required.includes(outcome.group)).every(outcome => outcome.state === 'done') ? 0 : 2;
 }
 
 export function validateSteps(steps: readonly Step[]): void {

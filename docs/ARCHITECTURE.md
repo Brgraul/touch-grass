@@ -165,6 +165,7 @@ tools/
 		boundary-enforcement.test.ts     Runs every checker against the fixtures
 	oxlint/anti-slop/                    Vendored lint rules
 	deploy.ts                            Implements pnpm cf:deploy, the Workers Builds deploy command
+	verify.ts                            Implements pnpm verify, the four local checks
 	verify-deployed.ts                   Implements pnpm verify:deployed
 	hooks/                               Optional agent hooks
 ARCHITECTURE.md                          Generated from policy.ts; never edited by hand
@@ -1270,7 +1271,9 @@ The generated app never ships this specification. Its `ARCHITECTURE.md` is rende
 
 ### Bundled skills
 
-`.agents/skills/` holds unchanged copies of pstack, `grill-me` and `grilling` (Matt Pocock), `show-me` (HumanLayer), and `vercel-react-best-practices`. The skills CLI installs each at a pinned commit and records it in `skills-lock.json`. The `vendored-skill` rule in `check-repo.ts` recomputes each recorded hash, so an in-place edit or a floating branch pin fails the check. `AGENTS.md` carries pstack's routing rules, because a skills-only install has no session hook. The directory also holds two repository-local skills: `evals`, a provider-neutral adaptation of Anthropic's eval guides, and a `touch-grass` verification skill. `touch-grass` checks repository access, runs `pnpm install --frozen-lockfile`, the build, and `pnpm check`, and reports each result separately. It is idempotent and never provisions anything.
+`.agents/skills/` holds unchanged copies of pstack, `grill-me` and `grilling` (Matt Pocock), `show-me` (HumanLayer), and `vercel-react-best-practices`. The skills CLI installs each at a pinned commit and records it in `skills-lock.json`. The `vendored-skill` rule in `check-repo.ts` recomputes each recorded hash, so an in-place edit or a floating branch pin fails the check. `AGENTS.md` carries pstack's routing rules, because a skills-only install has no session hook. The directory also holds one repository-local skill: `evals`, a provider-neutral adaptation of Anthropic's eval guides.
+
+`pnpm verify` (`tools/verify.ts`) checks repository access, runs `pnpm install --frozen-lockfile`, the build, and `pnpm check`, and reports each result separately. It imports only Node built-ins, so it runs before the first install. It is idempotent and never provisions anything.
 
 ## Deferred extensions
 

@@ -19,7 +19,7 @@
   <a href="docs/SPEC.md">MVP specification</a> · <a href="docs/ARCHITECTURE.md">Architecture</a>
 </p>
 
-One command takes an empty directory to a private GitHub repo with a working TanStack Start app, verified on your machine. Ask for staging and the same agent deploys it: hosted Supabase, Google sign-in, a real LLM and a Cloudflare Worker. Then go outside.
+One command turns a fresh clone of your empty private repo into a working TanStack Start app, verified on your machine and deployed to staging: hosted Supabase, Google sign-in, a real LLM and a Cloudflare Worker. Then go outside.
 
 Everything runs on your computer. The agent opens the terminal tabs and browser pages. You only approve logins and consent screens.
 
@@ -58,21 +58,23 @@ node tools/build-template-bundle.ts
 
 ## One command
 
-Invoke the skill in an empty directory:
+Create an empty private repository on your Git host, clone it, and invoke the skill from the clone's root:
 
 ```text
 $touch-grass
 ```
 
-The agent handles the setup:
+The agent takes it to a working staging environment in three stages:
 
-1. Checks dependencies and GitHub authentication.
-2. Creates a private GitHub repository and pushes the bundled starter.
-3. Runs the repository's four checks on your machine: repository access, frozen install, build and the full test suite.
+1. **Bootstrap.** Checks dependencies, commits the bundled starter and pushes it to `origin`.
+2. **Verify.** Runs the repository's `pnpm verify` on your machine: repository access, frozen install, build and the full test suite.
+3. **Deploy.** Follows the [staging guide](touch-grass/references/staging.md) with the `tg staging` helper.
+
+If a run stops, invoke `$touch-grass` again in the generated repository. It picks up where it stopped.
 
 ## Staging
 
-In the generated repository, ask for a staging environment. The agent follows the [staging guide](touch-grass/references/staging.md) with the `tg staging` helper:
+Once `pnpm verify` passes, the agent deploys the app's `dev` environment from your machine:
 
 1. Opens terminal tabs for the Cloudflare and Supabase logins. You approve them.
 2. Creates the Supabase project and fills in the app's configuration.
@@ -92,10 +94,10 @@ Secrets stay in a private, gitignored `.env.deploy.<env>` file and in Worker sec
 | **Supabase** | PostgreSQL, authentication, and file storage. |
 | **Tests, CI, and `AGENTS.md`** | A starter built for coding agents. |
 | **Pinned agent skills** | Systematic debugging, verification before completion, and React best practices. |
-| **Repeatable verification** | Rerun `$touch-grass` in the generated repo without provisioning it again. |
+| **Resumable setup** | Rerun `$touch-grass` in the generated repo to verify it again and finish staging, without bootstrapping it again. |
 
 ## What you need
 
-- **GitHub account** with permission to create private repositories and push code.
-- **Locally:** a coding agent that loads skills (Codex or Claude Code), Node.js >=22.23, Git, and an authenticated GitHub CLI (`gh`). Local verification also needs Docker and Google Chrome.
-- **For staging:** Cloudflare, Supabase and Google Cloud accounts, and an LLM API key with billing. The Free plans of Cloudflare and Supabase work. Google sign-in stays in Testing mode for listed test users; publishing it needs your homepage and privacy policy.
+- **An empty private repository** you created, cloned locally, and Git credentials that can push to it.
+- **Locally:** a coding agent that loads skills (Codex or Claude Code), Node.js >=22.23 and Git. Local verification also needs Docker and Google Chrome.
+- **Accounts:** Cloudflare, Supabase and Google Cloud accounts, and an LLM API key with billing. The Free plans of Cloudflare and Supabase work. Google sign-in stays in Testing mode for listed test users; publishing it needs your homepage and privacy policy.

@@ -4,15 +4,10 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync,
 import { dirname, join } from 'node:path';
 import { bundleRef } from './bundle.ts';
 import { must, run, StepError } from './exec.ts';
-import { Project, templateBundle } from './project.ts';
+import { generatedMarker, Project, templateBundle } from './project.ts';
 
 type FileEntry = { path: string; mode: '100644' | '100755'; blob: string };
-export type RemoteBinding = { owner: string; name: string } & (
-  | { kind: 'creating' }
-  | { kind: 'created'; id: number }
-  | { kind: 'published'; id: number }
-);
-export type Journal = { version: 1; root: string; source: string; revision: string; files: FileEntry[]; tree: string; initialCommit?: string; remote?: RemoteBinding };
+export type Journal = { version: 1; root: string; source: string; revision: string; files: FileEntry[]; tree: string; initialCommit?: string };
 const hash = /^[a-f0-9]{40,64}$/;
 function object(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function safePath(path: string): boolean { return !!path && path.split('/').every(part => !!part && part !== '.' && part !== '..' && part.toLowerCase() !== '.git' && !part.includes('\\') && !part.includes('\0')); }
@@ -31,13 +26,6 @@ export function readJournal(project: Project): Journal | undefined {
   if (v.initialCommit !== undefined) {
     if (typeof v.initialCommit !== 'string' || !hash.test(v.initialCommit)) throw new StepError('Invalid initial commit.');
     journal.initialCommit = v.initialCommit;
-  }
-  if (v.remote !== undefined) {
-    const b = v.remote;
-    if (!object(b) || typeof b.owner !== 'string' || !/^[a-z0-9-]+$/i.test(b.owner) || b.name !== project.slug) throw new StepError('Invalid repository binding.');
-    if (b.kind === 'creating') journal.remote = { kind: b.kind, owner: b.owner, name: project.slug };
-    else if ((b.kind === 'created' || b.kind === 'published') && typeof b.id === 'number' && Number.isSafeInteger(b.id) && b.id > 0) journal.remote = { kind: b.kind, owner: b.owner, name: project.slug, id: b.id };
-    else throw new StepError('Invalid repository receipt.');
   }
   return journal;
 }
@@ -99,6 +87,10 @@ function initialValid(project: Project, journal: Journal, commit: string): boole
     && must('git', ['rev-list', '--parents', '-n', '1', commit], { cwd: project.root }).trim() === commit
     && must('git', ['show', '-s', '--format=%s', commit], { cwd: project.root }).trim() === 'Initial commit from Touch Grass';
 }
+/** A repository Touch Grass generated earlier, checked out without its bootstrap journal, such as a teammate's clone or a worktree. */
+export function generatedClone(project: Project): boolean {
+  return !existsSync(project.path('.git', 'touch-grass', 'journal.json')) && existsSync(project.path(generatedMarker));
+}
 export function scaffoldDone(project: Project): boolean {
   const journal = readJournal(project);
   if (!journal?.initialCommit) return false;
@@ -110,30 +102,26 @@ function ensureIdentity(project: Project): void {
   const email = run('git', ['config', '--get', 'user.email'], { cwd: project.root }).stdout.trim();
   if ((process.env.GIT_AUTHOR_NAME || name) && (process.env.GIT_AUTHOR_EMAIL || email)
     && (process.env.GIT_COMMITTER_NAME || name) && (process.env.GIT_COMMITTER_EMAIL || email)) return;
-  const identity = run('gh', ['api', '--hostname', 'github.com', 'user', '--jq', '[.login,.id]|@tsv']);
-  const [login = '', id = ''] = identity.stdout.trim().split('\t');
-  if (identity.status !== 0 || !/^[a-z0-9-]+$/i.test(login) || !/^[1-9][0-9]*$/.test(id)) throw new StepError('Git author identity is missing. Configure user.name and user.email for this owned repository, or authorize gh so Touch Grass can derive a private GitHub noreply identity. No files were copied.');
-  if (!name) must('git', ['config', '--local', 'user.name', login], { cwd: project.root });
-  if (!email) must('git', ['config', '--local', 'user.email', `${id}+${login}@users.noreply.github.com`], { cwd: project.root });
+  throw new StepError('Git author identity is missing. Configure user.name and user.email, then rerun. No files were copied.');
 }
 export function scaffold(project: Project, bundle = templateBundle): void {
   let journal = readJournal(project);
   if (journal?.initialCommit) { scaffoldDone(project); return; }
   if (!journal) {
-    if (readdirSync(project.root).some(n => n !== '.DS_Store' || !lstatSync(project.path(n)).isFile() || lstatSync(project.path(n)).isSymbolicLink())) throw new StepError('Bootstrap requires an empty directory, except .DS_Store. Existing files and Git checkouts are preserved.');
-    must('git', ['init', '--quiet', '--initial-branch=main'], { cwd: project.root });
+    if (!existsSync(project.path('.git'))) throw new StepError('Run Touch Grass from the root of an empty Git repository. Ask the person to create a private repository and clone it, then invoke the skill inside the clone.');
+    const state = project.stateDir;
+    if (run('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], { cwd: project.root }).status === 0) throw new StepError('This repository already has commits. Touch Grass initializes only an empty repository.');
+    if (readdirSync(project.root).some(n => n !== '.git' && (n !== '.DS_Store' || !lstatSync(project.path(n)).isFile() || lstatSync(project.path(n)).isSymbolicLink()))) throw new StepError('Bootstrap requires an empty repository, except .git and .DS_Store. Existing files are preserved.');
     try {
-      mkdirSync(project.stateDir, { mode: 0o700 });
+      mkdirSync(state, { mode: 0o700 });
       journal = { version: 1, root: project.root, ...bundleSnapshot(project, bundle) };
       saveJournal(project, journal);
     } catch (error) {
-      rmSync(project.path('.git'), { recursive: true, force: true });
+      rmSync(state, { recursive: true, force: true });
+      run('git', ['update-ref', '-d', bundleRef], { cwd: project.root });
       throw error;
     }
   }
-  must('git', ['init', '--quiet', '--initial-branch=main'], { cwd: project.root });
-  const branch = must('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: project.root }).trim();
-  if (branch !== 'main') throw new StepError('Initial bootstrap requires branch main.');
   const head = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: project.root });
   if (head.status === 0) {
     const commit = head.stdout.trim();

@@ -2,7 +2,7 @@
 
 Vendored skills are unchanged copies of upstream skills, installed with the [skills CLI](https://github.com/vercel-labs/skills) and pinned to a commit. `skills-lock.json` in the repository root records each skill's source, commit (`ref`), path, and `computedHash`, a SHA-256 over the upstream skill folder. `pnpm check:repo` recomputes that hash for every locked skill and fails when a copy differs from the recorded hash or a `ref` is not a full commit SHA. The check proves the copies match the lock. A reviewer confirms that a changed lock entry matches upstream.
 
-`touch-grass` and `evals` are not in the lock. `touch-grass` is written for this repository. `evals` adapts Anthropic's eval guides from https://github.com/anthropics/skills, `skills/claude-api/shared/evals`, commit `dbd4588f9e1033efb41dad4bef2f7947c8993d44`, for any model provider. It is Apache-2.0, with the license in `evals/LICENSE.txt` and a change notice at the top of each adapted file. Edit it like any repository file.
+`evals` is not in the lock. It adapts Anthropic's eval guides from https://github.com/anthropics/skills, `skills/claude-api/shared/evals`, commit `dbd4588f9e1033efb41dad4bef2f7947c8993d44`, for any model provider. It is Apache-2.0, with the license in `evals/LICENSE.txt` and a change notice at the top of each adapted file. Edit it like any repository file.
 
 | Skills | Upstream | Commit | License |
 |---|---|---|---|
