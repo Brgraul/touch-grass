@@ -42,6 +42,18 @@ function repository(owner: string, name: string): Repo | undefined {
   if (typeof v.default_branch !== 'string') throw new StepError('GitHub returned no default branch.');
   return { id: v.id, owner, name, defaultBranch: v.default_branch };
 }
+/** The active github.com account and, for OAuth tokens, its scopes. Fine-grained tokens report no scopes. */
+function githubAuth(): { login: string; scopes?: string[] } | undefined {
+  const result = run('gh', ['auth', 'status', '--active', '--hostname', 'github.com', '--json', 'hosts']);
+  if (result.status !== 0) return undefined;
+  let parsed: unknown;
+  try { parsed = JSON.parse(result.stdout); } catch { throw new StepError('gh auth status returned invalid JSON.'); }
+  const hosts = object(parsed) && object(parsed.hosts) ? parsed.hosts['github.com'] : undefined;
+  const account = Array.isArray(hosts) ? hosts.find(entry => object(entry) && entry.active === true && entry.state === 'success') : undefined;
+  if (!object(account) || typeof account.login !== 'string') return undefined;
+  const scopes = typeof account.scopes === 'string' && account.scopes.trim() ? account.scopes.split(',').map(scope => scope.trim()) : undefined;
+  return { login: account.login, scopes };
+}
 export function normalizeOrigin(url: string): string | undefined {
   const match = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([a-z0-9-]+)\/([a-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(url.trim());
   return match ? `${match[1]}/${match[2]}`.toLowerCase() : undefined;
@@ -111,9 +123,12 @@ export function ensureGithub(project: Project): void {
   const main = remoteMain(owner, project.slug, journal.remote.kind === 'created');
   if (main && main !== journal.initialCommit) throw new StepError('Remote main differs from initial commit.');
   if (must('git', ['rev-parse', 'refs/heads/main'], { cwd: project.root }).trim() !== journal.initialCommit) throw new StepError('Local main changed before first publish. Preserve the work and resolve the bootstrap manually.');
-  if (!checkOrigin(project, owner, project.slug)) must('git', ['remote', 'add', 'origin', `https://github.com/${owner}/${project.slug}.git`], { cwd: project.root });
+  const https = `https://github.com/${owner}/${project.slug}.git`;
+  // Later Git commands use the person's own transport, so origin follows gh's git_protocol. The first push always uses gh's HTTPS credentials.
+  const ssh = run('gh', ['config', 'get', 'git_protocol', '--host', 'github.com']).stdout.trim() === 'ssh';
+  if (!checkOrigin(project, owner, project.slug)) must('git', ['remote', 'add', 'origin', ssh ? `git@github.com:${owner}/${project.slug}.git` : https], { cwd: project.root });
   checkOrigin(project, owner, project.slug);
-  if (!main) must('git', ['-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential', 'push', '--quiet', 'origin', `${journal.initialCommit}:refs/heads/main`], { cwd: project.root, env: { GIT_TERMINAL_PROMPT: '0' } });
+  if (!main) must('git', ['-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential', 'push', '--quiet', https, `${journal.initialCommit}:refs/heads/main`], { cwd: project.root, env: { GIT_TERMINAL_PROMPT: '0' } });
   if (remoteMain(owner, project.slug) !== journal.initialCommit) throw new StepError('Initial main could not be confirmed at the expected commit.');
   if (repo.defaultBranch !== 'main') {
     api(`repos/${owner}/${project.slug}`, ['--method', 'PATCH', '-f', 'default_branch=main']);
@@ -123,8 +138,15 @@ export function ensureGithub(project: Project): void {
 }
 export const githubSteps: Step[] = [
   { id: 'github-auth', group: 'provisioning', title: 'GitHub CLI authorization', needs: ['tools'], actor: 'agent',
-    async observe() { return run('gh', ['auth', 'status', '--hostname', 'github.com']).status === 0 ? { done: true, summary: `signed in as ${login()}` } : { done: false, summary: 'GitHub authorization required' }; },
-    instructions: () => 'Start gh auth login --hostname github.com --git-protocol https --web in an interactive terminal. Drive the browser until the person must approve the displayed code/OAuth request. Resume after the command finishes; never request a token in chat.',
+    async observe() {
+      const auth = githubAuth();
+      if (!auth) return { done: false, summary: 'GitHub authorization required' };
+      if (auth.scopes && !auth.scopes.includes('workflow')) return { done: false, summary: 'the gh token lacks the workflow scope, which GitHub requires to push .github/workflows' };
+      return { done: true, summary: `signed in as ${auth.login}` };
+    },
+    instructions: () => githubAuth()
+      ? 'Start `gh auth refresh --hostname github.com --scopes workflow` in an interactive terminal. Drive the browser until the person must approve the displayed code. Resume after the command finishes; never request a token in chat.'
+      : 'Start `gh auth login --hostname github.com --git-protocol https --scopes workflow --web` in an interactive terminal. Drive the browser until the person must approve the displayed code/OAuth request. Resume after the command finishes; never request a token in chat.',
   },
   { id: 'scaffold', group: 'provisioning', title: 'Pinned template committed', needs: ['tools', 'github-auth'], actor: 'script',
     async observe(project) { return scaffoldDone(project) ? { done: true, summary: 'initial committed template verified' } : { done: false }; },

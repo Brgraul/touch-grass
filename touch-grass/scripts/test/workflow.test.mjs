@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { Project } from '../lib/project.ts';
 import { readJournal, saveJournal, scaffold, scaffoldDone } from '../lib/scaffold.ts';
-import { ensureGithub, githubDone, normalizeOrigin } from '../steps/github.ts';
+import { ensureGithub, githubDone, githubSteps, normalizeOrigin } from '../steps/github.ts';
 import { evaluate, exitCode, report, validateSteps } from '../lib/engine.ts';
 import { codexSteps } from '../steps/codex.ts';
 import { must } from '../lib/exec.ts';
@@ -55,7 +55,9 @@ fs.appendFileSync(process.env.TG_LOG, JSON.stringify({ command: 'gh', args }) + 
 function output(status, value) { process.stdout.write('HTTP/2.0 ' + status + ' Fixture\\r\\nContent-Type: application/json\\r\\n\\r\\n' + JSON.stringify(value)); process.exit(status < 300 ? 0 : 1); }
 function save() { fs.writeFileSync(process.env.TG_STATE, JSON.stringify(state)); }
 if (args[0] === '--version') { console.log('gh version fixture'); process.exit(0); }
+if (args[0] === 'config' && args[1] === 'get') { console.log(state.gitProtocol || 'https'); process.exit(0); }
 if (args[0] === 'auth' && args[1] === 'git-credential') { console.log('username=fixture-owner\\npassword=fixture-token-for-test'); process.exit(0); }
+if (args[0] === 'auth' && args.includes('--json')) { if (state.authFailure) process.exit(1); console.log(JSON.stringify({ hosts: { 'github.com': [{ state: 'success', active: true, login: state.owner || 'fixture-owner', scopes: state.scopes ?? 'repo, read:org, gist, workflow' }] } })); process.exit(0); }
 if (args[0] === 'auth') process.exit(state.authFailure ? 1 : 0);
 if (args.includes('user') && args.includes('--jq')) { console.log(args[args.indexOf('--jq') + 1] === '.login' ? state.owner || 'fixture-owner' : 'fixture-owner\\t56789'); process.exit(0); }
 if (state.network) { console.error('offline sentinel-secret'); process.exit(1); }
@@ -84,7 +86,11 @@ output(404, { message: 'Not Found' });
 const fs = require('node:fs'); const cp = require('node:child_process'); const args = process.argv.slice(2);
 if (args.includes('push')) {
   fs.appendFileSync(process.env.TG_LOG, JSON.stringify({ command: 'git-push', args }) + '\\n');
-  args[args.indexOf('origin')] = process.env.TG_BARE;
+  const scopes = JSON.parse(fs.readFileSync(process.env.TG_STATE)).scopes ?? 'repo, read:org, gist, workflow';
+  const workflows = cp.spawnSync(process.env.TG_REAL_GIT, ['ls-tree', '-r', '--name-only', 'HEAD', '.github/workflows'], { encoding: 'utf8' }).stdout.trim();
+  if (workflows && !scopes.split(', ').includes('workflow')) { console.error(' ! [remote rejected] main -> main (refusing to allow an OAuth App to create or update workflow without workflow scope)'); process.exit(1); }
+  const target = args.findIndex(arg => arg === 'origin' || arg.startsWith('https://github.com/'));
+  args[target] = process.env.TG_BARE;
 }
 const result = cp.spawnSync(process.env.TG_REAL_GIT, args, { stdio: 'inherit', env: process.env });
 if (args.includes('push') && result.status === 0 && process.env.TG_LOSE_PUSH === '1') process.exit(1);
@@ -321,9 +327,32 @@ test('installer handles path spaces, reruns and preserves unrelated existing ins
   assert.equal(install().status, 1);
 });
 
-test('subprocess failures suppress raw secret-bearing output', t => {
+test('subprocess failures name the vendor reason, and suppress output marked sensitive', t => {
   const f = fixture(t);
-  assert.throws(() => must(process.execPath, ['-e', 'process.stderr.write("sensitive-sentinel");process.stdout.write("sensitive-sentinel");process.exit(1)']), error => !error.message.includes('sensitive-sentinel'));
+  const failing = ['-e', 'process.stderr.write("fatal: sensitive-sentinel via https://user:pw@example.com/x\\n");process.stdout.write("sensitive-sentinel");process.exit(1)'];
+  assert.throws(() => must(process.execPath, failing), error => error.message.includes('fatal: sensitive-sentinel') && !error.message.includes('pw@'));
+  assert.throws(() => must(process.execPath, failing, { sensitive: true }), error => !error.message.includes('sensitive-sentinel'));
+});
+
+test('a gh token without the workflow scope waits at github-auth and never pushes', async t => {
+  const f = fixture(t);
+  const github = fakeGithub(f, { scopes: 'repo, read:org, gist' });
+  const auth = githubSteps.find(step => step.id === 'github-auth');
+  const seen = await auth.observe(f.project);
+  assert.equal(seen.done, false);
+  assert.match(seen.summary, /workflow scope/);
+  assert.match(auth.instructions(f.project), /gh auth refresh --hostname github.com --scopes workflow/);
+  github.set({ scopes: 'repo, read:org, gist, workflow' });
+  assert.equal((await auth.observe(f.project)).done, true);
+  assert.equal(github.calls().filter(c => c.command === 'git-push').length, 0);
+});
+
+test('origin follows the gh git protocol while the first push uses gh HTTPS credentials', t => {
+  const f = initialized(t, { gitProtocol: 'ssh' });
+  ensureGithub(f.project);
+  assert.equal(git(f.target, ['remote', 'get-url', 'origin']), 'git@github.com:fixture-owner/fresh-app.git');
+  const push = f.github.calls().find(call => call.command === 'git-push');
+  assert.ok(push.args.includes('https://github.com/fixture-owner/fresh-app.git'));
 });
 
 test('origin normalization admits only the expected GitHub transport identities', () => {
