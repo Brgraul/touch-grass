@@ -15,6 +15,7 @@ export default defineConfig({
     baseURL: process.env.APP_URL ?? 'http://127.0.0.1:3000',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    launchOptions: { executablePath: process.env.CHROME_EXECUTABLE_PATH },
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], channel: 'chrome' } }],
   // The journeys run against the production build in workerd, the runtime Cloudflare deploys, with local
