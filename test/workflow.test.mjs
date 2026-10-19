@@ -5,15 +5,17 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { Project } from '../lib/project.ts';
-import { readJournal, saveJournal, scaffold, scaffoldDone } from '../lib/scaffold.ts';
-import { push, pushDone } from '../steps/repository.ts';
-import { evaluate, exitCode, report, validateSteps } from '../lib/engine.ts';
-import { verificationSteps } from '../steps/local.ts';
-import { must } from '../lib/exec.ts';
-import { buildTemplateBundle } from '../lib/bundle.ts';
+import { Project } from '../skills/touch-grass/scripts/lib/project.ts';
+import { readJournal, saveJournal, scaffold, scaffoldDone } from '../skills/touch-grass/scripts/lib/scaffold.ts';
+import { push, pushDone } from '../skills/touch-grass/scripts/steps/repository.ts';
+import { evaluate, exitCode, report, validateSteps } from '../skills/touch-grass/scripts/lib/engine.ts';
+import { verificationSteps } from '../skills/touch-grass/scripts/steps/local.ts';
+import { must } from '../skills/touch-grass/scripts/lib/exec.ts';
+import { buildTemplateBundle } from '../skills/touch-grass/scripts/lib/bundle.ts';
 
-const scripts = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const scripts = join(repo, 'skills/touch-grass/scripts');
+const installer = join(repo, 'tools/install.mjs');
 const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
 const git = (cwd, args, options = {}) => {
   const result = spawnSync(realGit, args, { cwd, encoding: 'utf8', ...options });
@@ -263,7 +265,7 @@ test('CLI help, invalid args, read-only status and complete offline fixture', t 
 
 test('installer handles path spaces, reruns and preserves unrelated existing installs', t => {
   const f = fixture(t); const installation = join(f.root, 'skills with spaces');
-  const install = () => spawnSync(process.execPath, [join(scripts, 'install.mjs'), '--skills-dir', installation], { encoding: 'utf8' });
+  const install = () => spawnSync(process.execPath, [installer, '--skills-dir', installation], { encoding: 'utf8' });
   assert.equal(install().status, 0); assert.equal(lstatSync(join(installation, 'touch-grass')).isSymbolicLink(), true); assert.equal(install().status, 0);
   rmSync(join(installation, 'touch-grass')); mkdirSync(join(installation, 'touch-grass')); writeFileSync(join(installation, 'touch-grass', 'sentinel'), 'preserve');
   assert.equal(install().status, 1); assert.equal(readFileSync(join(installation, 'touch-grass', 'sentinel'), 'utf8'), 'preserve');
@@ -281,12 +283,12 @@ test('subprocess failures name the vendor reason, and suppress output marked sen
 test('installer runs from a checkout path containing spaces', t => {
   const f = fixture(t);
   const checkout = join(f.root, 'checkout with spaces');
-  const copiedScripts = join(checkout, 'touch-grass/scripts');
-  mkdirSync(copiedScripts, { recursive: true }); mkdirSync(join(checkout, 'touch-grass/assets'), { recursive: true }); writeFileSync(join(checkout, 'touch-grass/assets/template.bundle'), 'fixture');
-  writeFileSync(join(checkout, 'touch-grass/SKILL.md'), 'fixture');
-  copyFileSync(join(scripts, 'install.mjs'), join(copiedScripts, 'install.mjs'));
+  const copiedInstaller = join(checkout, 'tools/install.mjs');
+  mkdirSync(dirname(copiedInstaller), { recursive: true }); mkdirSync(join(checkout, 'skills/touch-grass/assets'), { recursive: true }); writeFileSync(join(checkout, 'skills/touch-grass/assets/template.bundle'), 'fixture');
+  writeFileSync(join(checkout, 'skills/touch-grass/SKILL.md'), 'fixture');
+  copyFileSync(installer, copiedInstaller);
   const destination = join(f.root, 'global skills');
-  const result = spawnSync(process.execPath, [join(copiedScripts, 'install.mjs'), '--skills-dir', destination], { encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [copiedInstaller, '--skills-dir', destination], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(readFileSync(join(destination, 'touch-grass/SKILL.md'), 'utf8'), 'fixture');
 });

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="Touch Grass — a fresh patch of grass" width="240">
+  <img src=".github/assets/logo.png" alt="Touch Grass — a fresh patch of grass" width="240">
 </p>
 
 <h1 align="center">Touch Grass</h1>
@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <a href="docs/SPEC.md">MVP specification</a> · <a href="docs/ARCHITECTURE.md">Architecture</a>
+  <a href="docs/SPEC.md">MVP specification</a> · <a href="docs/TEMPLATE-SPEC.md">Template specification</a>
 </p>
 
 One command turns a fresh clone of your empty private repo into a working TanStack Start app, verified on your machine and deployed to staging: hosted Supabase, Google sign-in, a real LLM and a Cloudflare Worker. Then go outside.
@@ -31,29 +31,29 @@ Install the skill with the [skills CLI](https://github.com/vercel-labs/skills):
 npx skills add Brgraul/touch-grass
 ```
 
-The `touch-grass/` folder is self-contained. It ships the app template as one file, `touch-grass/assets/template.bundle`, so no installer can drop or alter template files.
+The `skills/touch-grass/` folder is self-contained. It ships the app template as one file, `skills/touch-grass/assets/template.bundle`, so no installer can drop or alter template files.
 
 To work on the skill itself, clone this repository and link it instead:
 
 ```sh
 git clone https://github.com/Brgraul/touch-grass.git
 cd touch-grass
-node touch-grass/scripts/install.mjs
+npm run link
 ```
 
-The installer symlinks the folder into `${CODEX_HOME:-~/.codex}/skills` by default, so a `git pull` updates the skill. For Claude Code, pass `--skills-dir ~/.claude/skills`. It is rerunnable and preserves unrelated installations. Restart or refresh your agent's skill discovery after installation.
+The installer symlinks the folder into `${CODEX_HOME:-~/.codex}/skills` by default, so a `git pull` updates the skill. For Claude Code, run `npm run link -- --skills-dir ~/.claude/skills`. It is rerunnable and preserves unrelated installations. Restart or refresh your agent's skill discovery after installation.
 
 Run the skill's regression checks without provisioning live resources:
 
 ```sh
-node --test touch-grass/scripts/test/*.test.mjs
+npm test
 ```
 
 The editable template lives in `template/`. After changing it, stage the changes and rebuild the bundle, then commit both together. A test fails when the bundle is stale.
 
 ```sh
 git add template
-node tools/build-template-bundle.ts
+npm run bundle
 ```
 
 ## One command
@@ -68,7 +68,7 @@ The agent takes it to a working staging environment in three stages:
 
 1. **Bootstrap.** Checks dependencies, commits the bundled starter and pushes it to `origin`.
 2. **Verify.** Runs the repository's `pnpm verify` on your machine: repository access, frozen install, build and the full test suite.
-3. **Deploy.** Follows the [staging guide](touch-grass/references/staging.md) with the `tg staging` helper.
+3. **Deploy.** Follows the [staging guide](skills/touch-grass/references/staging.md) with the `tg staging` helper.
 
 If a run stops, invoke `$touch-grass` again in the generated repository. It picks up where it stopped.
 

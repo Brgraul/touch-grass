@@ -8,12 +8,12 @@
 
 | Part | State |
 |---|---|
-| Template (`template/`, shipped as `touch-grass/assets/template.bundle`) | Implemented. [ARCHITECTURE.md](ARCHITECTURE.md) is its specification. |
+| Template (`template/`, shipped as `skills/touch-grass/assets/template.bundle`) | Implemented. [TEMPLATE-SPEC.md](TEMPLATE-SPEC.md) is its specification. |
 | Repository verifier, `pnpm verify` | Implemented, at `template/tools/verify.ts`. |
 | Bundled third-party agent skills | Implemented and pinned. See `template/.agents/skills/UPSTREAM.md`. |
-| Global `$touch-grass` skill (`touch-grass/SKILL.md`) | Implemented. One run: bootstrap of an empty clone, local verification, then guided staging. |
+| Global `$touch-grass` skill (`skills/touch-grass/SKILL.md`) | Implemented. One run: bootstrap of an empty clone, local verification, then guided staging. |
 | Provisioning scripts | Implemented. Pinned committed snapshot, private recovery journal, and an initial push that never overwrites an existing remote branch. Offline fixture verification only; no live resources created for implementation tests. |
-| Guided staging (`tg staging`, `touch-grass/references/staging.md`) | Implemented. On 19 October 2026 the flow ran against a real Supabase project, Google OAuth client, OpenAI key and Cloudflare Worker, including real Google sign-in and a tool-using model reply. The helper's project-creation path is covered by offline tests only. |
+| Guided staging (`tg staging`, `skills/touch-grass/references/staging.md`) | Implemented. On 19 October 2026 the flow ran against a real Supabase project, Google OAuth client, OpenAI key and Cloudflare Worker, including real Google sign-in and a tool-using model reply. The helper's project-creation path is covered by offline tests only. |
 
 The global skill orchestrates safe local steps, the initial push, local verification, and the guided staging flow. The template is its input and is not changed by this work, except to fix defects that provisioning or verification exposes.
 
@@ -28,11 +28,11 @@ The global skill orchestrates safe local steps, the initial push, local verifica
 
 ## Architecture & Decisions
 
-- **Interface:** Globally installed agent skill (`touch-grass/SKILL.md`), for Codex or Claude Code.
-- **Stack:** Hardcoded and opinionated. No alternatives. TanStack Start with React and TypeScript, on Cloudflare Workers and Workflows, with Supabase for PostgreSQL and Auth, Google sign-in, and the OpenAI Agents SDK against any OpenAI-compatible provider. [ARCHITECTURE.md](ARCHITECTURE.md) lists the full stack.
+- **Interface:** Globally installed agent skill (`skills/touch-grass/SKILL.md`), for Codex or Claude Code.
+- **Stack:** Hardcoded and opinionated. No alternatives. TanStack Start with React and TypeScript, on Cloudflare Workers and Workflows, with Supabase for PostgreSQL and Auth, Google sign-in, and the OpenAI Agents SDK against any OpenAI-compatible provider. [TEMPLATE-SPEC.md](TEMPLATE-SPEC.md) lists the full stack.
 - **Scaffolding:** The working template in `template/`. It holds application code, two reference features (Account and Agent Chat), database migrations and SQL tests, unit, Workers, and E2E tests, boundary enforcement, a CI workflow, a Workers Builds deploy command (`pnpm cf:deploy`), `AGENTS.md`, and bundled agent skills. No external templates or dynamic code generation.
 - **Provisioning:** Deterministic scripts fetch the template from the skill's Git bundle into the person's empty clone, commit it, and push the initial commit to `origin`. Touch Grass never creates repositories.
-  - Ship only the template's staged Git tree. `node tools/build-template-bundle.ts` packs it into `touch-grass/assets/template.bundle`, and a test fails when the bundle differs from the staged `template/`. Build and test output in the working directory (`node_modules/`, `dist/`, `test-results/`, `.wrangler/`, `.tanstack/`, `.dev.vars`) never reaches the bundle. One file also survives installers that skip files, such as the skills CLI dropping `metadata.json`.
+  - Ship only the template's staged Git tree. `npm run bundle` packs it into `skills/touch-grass/assets/template.bundle`, and a test fails when the bundle differs from the staged `template/`. Build and test output in the working directory (`node_modules/`, `dist/`, `test-results/`, `.wrangler/`, `.tanstack/`, `.dev.vars`) never reaches the bundle. One file also survives installers that skip files, such as the skills CLI dropping `metadata.json`.
   - Keep `pnpm-lock.yaml`. Every check installs with `--frozen-lockfile`.
 - **Agent Skills:** The template vendors pstack, `grill-me` and `grilling` (Matt Pocock), `show-me` (HumanLayer), and `vercel-react-best-practices` in `.agents/skills/`. The [skills CLI](https://github.com/vercel-labs/skills) installs them at pinned commits and records each in `skills-lock.json`, and `pnpm check:repo` fails when a copy differs from its recorded hash. The template also holds one repository-local skill: `evals`, a provider-neutral adaptation of Anthropic's eval guides. `AGENTS.md` carries pstack's routing rules, because a skills-only install has no session hook.
 - **Verification:** Run `pnpm verify`. It runs on plain Node before the first install, runs four checks in order, stops at the first failure, and reports each as `passed`, `failed`, or `not run`:

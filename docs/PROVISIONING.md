@@ -1,6 +1,6 @@
 # Provisioning surfaces
 
-The [MVP](SPEC.md) initializes an empty repository the person created, verifies it on the local machine, and deploys it to staging. The [global skill](../touch-grass/SKILL.md) owns the execution loop. Its [staging reference](../touch-grass/references/staging.md) is the last stage, after local verification passes. The rows below run in order. Everything below runs on the local machine. On 19 October 2026 every row ran live against real services. The Supabase project in that run was created by an earlier ad hoc script; the helper's create path is covered by offline tests with a stubbed Management API, and its reuse path ran live.
+The [MVP](SPEC.md) initializes an empty repository the person created, verifies it on the local machine, and deploys it to staging. The [global skill](../skills/touch-grass/SKILL.md) owns the execution loop. Its [staging reference](../skills/touch-grass/references/staging.md) is the last stage, after local verification passes. The rows below run in order. Everything below runs on the local machine. On 19 October 2026 every row ran live against real services. The Supabase project in that run was created by an earlier ad hoc script; the helper's create path is covered by offline tests with a stubbed Management API, and its reuse path ran live.
 
 The agent opens every terminal tab and browser page. The person acts only at the gates in the last column.
 
