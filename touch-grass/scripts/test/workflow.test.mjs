@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,15 +32,15 @@ function fixture(t) {
   git(source, ['init', '-q', '-b', 'main']);
   const entries = { '.hidden': 'dotfile\n', 'bin/run': '#!/bin/sh\nexit 0\n', 'pnpm-lock.yaml': 'lockfileVersion: 9.0\n', 'src/main.ts': 'export const answer = 42;\n' };
   for (const [path, value] of Object.entries(entries)) {
-    const file = join(source, 'assets/template', path);
+    const file = join(source, 'touch-grass/assets/template', path);
     mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, value);
   }
-  chmodSync(join(source, 'assets/template/bin/run'), 0o755);
+  chmodSync(join(source, 'touch-grass/assets/template/bin/run'), 0o755);
   git(source, ['add', '.']); git(source, ['commit', '-qm', 'Template fixture']);
-  writeFileSync(join(source, 'assets/template/.hidden'), 'dirty source\n');
-  writeFileSync(join(source, 'assets/template/untracked-secret'), 'secret\n');
+  writeFileSync(join(source, 'touch-grass/assets/template/.hidden'), 'dirty source\n');
+  writeFileSync(join(source, 'touch-grass/assets/template/untracked-secret'), 'secret\n');
   const project = new Project(target);
-  return { root, source, target, project, entries };
+  return { root, source, template: join(source, 'touch-grass/assets/template'), target, project, entries };
 }
 function fakeGithub(f, initial = {}) {
   const bin = join(f.root, 'bin'); mkdirSync(bin);
@@ -104,13 +104,13 @@ process.exit(result.status ?? 1);
   return { bare, state, set, calls };
 }
 function initialized(t, initial) {
-  const f = fixture(t); scaffold(f.project, f.source); return { ...f, github: fakeGithub(f, initial) };
+  const f = fixture(t); scaffold(f.project, f.template); return { ...f, github: fakeGithub(f, initial) };
 }
 function noPush(f) { assert.equal(f.github.calls().filter(c => c.command === 'git-push').length, 0); }
 
 test('copies only committed tracked blobs, dotfiles, lockfile and executable mode', t => {
   const f = fixture(t); writeFileSync(join(f.target, '.DS_Store'), 'harmless');
-  scaffold(f.project, f.source);
+  scaffold(f.project, f.template);
   for (const [path, value] of Object.entries(f.entries)) assert.equal(readFileSync(join(f.target, path), 'utf8'), value);
   assert.equal(lstatSync(join(f.target, 'bin/run')).mode & 0o777, 0o755);
   assert.equal(existsSync(join(f.target, 'untracked-secret')), false);
@@ -129,10 +129,43 @@ test('refuses existing files, matching directories, symlinks and unowned Git', a
     if (kind === 'git') git(f.target, ['init', '-q']);
     if (kind === 'worktree-file') writeFileSync(join(f.target, '.git'), 'gitdir: /unowned');
     const before = readdirSync(f.target);
-    assert.throws(() => scaffold(f.project, f.source));
+    assert.throws(() => scaffold(f.project, f.template));
     assert.deepEqual(readdirSync(f.target), before);
     if (kind === 'file') assert.equal(readFileSync(join(f.target, 'pnpm-lock.yaml'), 'utf8'), 'sentinel');
   });
+});
+
+test('a copied install without a checkout ships the installed files minus ignored ones, and resumes after interruption', t => {
+  const f = fixture(t);
+  const copy = join(f.root, 'copied skills/touch-grass/assets/template');
+  cpSync(f.template, copy, { recursive: true });
+  writeFileSync(join(copy, '.gitignore'), 'node_modules/\n.env*\n');
+  mkdirSync(join(copy, 'node_modules/dep'), { recursive: true }); writeFileSync(join(copy, 'node_modules/dep/index.js'), 'dependency');
+  writeFileSync(join(copy, '.env.live'), 'LLM_API_KEY=installed-secret');
+  class Interrupted extends Project {
+    count = 0;
+    path(...parts) {
+      if (parts.join('/') === 'src/main.ts' && ++this.count === 2) throw new Error('simulated interruption');
+      return super.path(...parts);
+    }
+  }
+  assert.throws(() => scaffold(new Interrupted(f.target), copy), /simulated interruption/);
+  scaffold(f.project, copy);
+  const shipped = git(f.target, ['ls-files']).split('\n').sort();
+  assert.deepEqual(shipped, ['.gitignore', '.hidden', 'bin/run', 'pnpm-lock.yaml', 'src/main.ts', 'untracked-secret']);
+  assert.equal(readFileSync(join(f.target, '.hidden'), 'utf8'), 'dirty source\n', 'the installed copy is the source of truth');
+  assert.equal(git(f.target, ['ls-files', '-s', 'bin/run']).split(' ')[0], '100755');
+  assert.equal(scaffoldDone(f.project), true);
+});
+
+test('a template inside an unrelated repository that does not track it is imported as installed', t => {
+  const f = fixture(t);
+  const dotfiles = join(f.root, 'dotfiles');
+  mkdirSync(dotfiles); git(dotfiles, ['init', '-q']);
+  const copy = join(dotfiles, 'skills/touch-grass/assets/template');
+  cpSync(f.template, copy, { recursive: true });
+  scaffold(f.project, copy);
+  assert.ok(git(f.target, ['ls-files']).split('\n').includes('untracked-secret'));
 });
 
 test('interruption at every file boundary resumes once and never overwrites conflicts', async t => {
@@ -145,12 +178,12 @@ test('interruption at every file boundary resumes once and never overwrites conf
         return super.path(...parts);
       }
     }
-    assert.throws(() => scaffold(new Interrupted(f.target), f.source), /simulated interruption/);
+    assert.throws(() => scaffold(new Interrupted(f.target), f.template), /simulated interruption/);
     assert.ok(readJournal(f.project));
     assert.equal(readJournal(f.project).initialCommit, undefined);
-    scaffold(f.project, f.source);
+    scaffold(f.project, f.template);
     const commit = git(f.target, ['rev-parse', 'HEAD']);
-    scaffold(f.project, f.source);
+    scaffold(f.project, f.template);
     assert.equal(git(f.target, ['rev-parse', 'HEAD']), commit);
     assert.equal(git(f.target, ['rev-list', '--count', 'HEAD']), '1');
   });
@@ -163,11 +196,11 @@ test('modified interrupted copy and unrelated entries are preserved and refused'
       count = 0;
       path(...parts) { if (parts[0] === 'src/main.ts' && ++this.count === 2) throw new Error('stop'); return super.path(...parts); }
     }
-    assert.throws(() => scaffold(new Interrupted(f.target), f.source));
+    assert.throws(() => scaffold(new Interrupted(f.target), f.template));
     if (kind === 'changed') writeFileSync(join(f.target, '.hidden'), 'user-change');
     if (kind === 'unrelated') writeFileSync(join(f.target, 'user.txt'), 'user-change');
-    if (kind === 'symlink') { rmSync(join(f.target, 'bin/run')); symlinkSync(join(f.source, 'assets/template/bin/run'), join(f.target, 'bin/run')); }
-    assert.throws(() => scaffold(f.project, f.source));
+    if (kind === 'symlink') { rmSync(join(f.target, 'bin/run')); symlinkSync(join(f.source, 'touch-grass/assets/template/bin/run'), join(f.target, 'bin/run')); }
+    assert.throws(() => scaffold(f.project, f.template));
     if (kind === 'changed') assert.equal(readFileSync(join(f.target, '.hidden'), 'utf8'), 'user-change');
     if (kind === 'unrelated') assert.equal(readFileSync(join(f.target, 'user.txt'), 'utf8'), 'user-change');
     assert.notEqual(spawnSync(realGit, ['rev-parse', '--verify', 'HEAD'], { cwd: f.target }).status, 0);
@@ -175,25 +208,25 @@ test('modified interrupted copy and unrelated entries are preserved and refused'
 });
 
 test('commit-response loss recovery validates exact initial tree and preserves subsequent work', t => {
-  const f = fixture(t); scaffold(f.project, f.source);
+  const f = fixture(t); scaffold(f.project, f.template);
   const journal = readJournal(f.project); const initial = journal.initialCommit;
   delete journal.initialCommit; saveJournal(f.project, journal);
   writeFileSync(join(f.target, '.hidden'), 'subsequent work');
-  scaffold(f.project, f.source);
+  scaffold(f.project, f.template);
   assert.equal(readJournal(f.project).initialCommit, initial);
   assert.equal(readFileSync(join(f.target, '.hidden'), 'utf8'), 'subsequent work');
   git(f.target, ['add', '.hidden']); git(f.target, ['commit', '-qm', 'User work']);
-  const later = git(f.target, ['rev-parse', 'HEAD']); scaffold(f.project, f.source);
+  const later = git(f.target, ['rev-parse', 'HEAD']); scaffold(f.project, f.template);
   assert.equal(git(f.target, ['rev-parse', 'HEAD']), later);
   assert.equal(git(f.target, ['rev-list', '--count', 'HEAD']), '2');
 });
 
 test('any HEAD marker cannot substitute for the initial snapshot', t => {
-  const f = fixture(t); scaffold(f.project, f.source);
+  const f = fixture(t); scaffold(f.project, f.template);
   const journal = readJournal(f.project); delete journal.initialCommit; saveJournal(f.project, journal);
   writeFileSync(join(f.target, '.hidden'), 'other'); git(f.target, ['add', '.']); git(f.target, ['commit', '--amend', '-qm', 'Not bootstrap']);
   assert.equal(scaffoldDone(f.project), false);
-  assert.throws(() => scaffold(f.project, f.source), /Unexpected commit/);
+  assert.throws(() => scaffold(f.project, f.template), /Unexpected commit/);
 });
 
 test('fresh create and first push handle empty Git Database 409 and inherited default master', t => {
@@ -368,7 +401,7 @@ test('installer runs from a checkout path containing spaces', t => {
   const f = fixture(t);
   const checkout = join(f.root, 'checkout with spaces');
   const copiedScripts = join(checkout, 'touch-grass/scripts');
-  mkdirSync(copiedScripts, { recursive: true }); mkdirSync(join(checkout, 'assets/template'), { recursive: true });
+  mkdirSync(copiedScripts, { recursive: true }); mkdirSync(join(checkout, 'touch-grass/assets/template'), { recursive: true });
   writeFileSync(join(checkout, 'touch-grass/SKILL.md'), 'fixture');
   copyFileSync(join(scripts, 'install.mjs'), join(copiedScripts, 'install.mjs'));
   const destination = join(f.root, 'global skills');
@@ -379,15 +412,15 @@ test('installer runs from a checkout path containing spaces', t => {
 
 test('tracked template symlinks are refused before destination claim', t => {
   const f = fixture(t);
-  symlinkSync('src/main.ts', join(f.source, 'assets/template/link'));
-  git(f.source, ['add', 'assets/template/link']); git(f.source, ['commit', '-qm', 'Symlink fixture']);
-  assert.throws(() => scaffold(f.project, f.source), /unsupported mode/);
+  symlinkSync('src/main.ts', join(f.source, 'touch-grass/assets/template/link'));
+  git(f.source, ['add', 'touch-grass/assets/template/link']); git(f.source, ['commit', '-qm', 'Symlink fixture']);
+  assert.throws(() => scaffold(f.project, f.template), /unsupported mode/);
   assert.deepEqual(readdirSync(f.target), []);
 });
 
 test('journal traversal and symlink state are rejected', async t => {
   for (const kind of ['traversal', 'state-symlink']) await t.test(kind, t => {
-    const f = fixture(t); scaffold(f.project, f.source);
+    const f = fixture(t); scaffold(f.project, f.template);
     if (kind === 'traversal') {
       const journal = readJournal(f.project); journal.files[0].path = '../escaped';
       writeFileSync(join(f.project.stateDir, 'journal.json'), JSON.stringify(journal));
@@ -395,7 +428,7 @@ test('journal traversal and symlink state are rejected', async t => {
       const original = join(f.project.stateDir, 'journal.json');
       const outside = join(f.root, 'journal-copy'); copyFileSync(original, outside); rmSync(original); symlinkSync(outside, original);
     }
-    assert.throws(() => scaffold(f.project, f.source));
+    assert.throws(() => scaffold(f.project, f.template));
     assert.equal(existsSync(join(f.root, 'escaped')), false);
   });
 });
@@ -404,7 +437,7 @@ test('journal traversal and symlink state are rejected', async t => {
 test('missing Git identity derives a local-only GitHub noreply fallback', t => {
   const f = fixture(t); fakeGithub(f);
   for (const name of ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL']) delete process.env[name];
-  scaffold(f.project, f.source);
+  scaffold(f.project, f.template);
   assert.equal(git(f.target, ['config', '--local', '--get', 'user.name']), 'fixture-owner');
   assert.equal(git(f.target, ['config', '--local', '--get', 'user.email']), '56789+fixture-owner@users.noreply.github.com');
   assert.equal(readFileSync(process.env.GIT_CONFIG_GLOBAL, 'utf8'), '');
@@ -412,11 +445,11 @@ test('missing Git identity derives a local-only GitHub noreply fallback', t => {
 
 test('tracked files that match template ignore patterns are still committed exactly', t => {
   const f = fixture(t);
-  writeFileSync(join(f.source, 'assets/template/.gitignore'), 'ignored-tracked\n');
-  writeFileSync(join(f.source, 'assets/template/ignored-tracked'), 'tracked despite ignore');
-  git(f.source, ['add', '--force', 'assets/template/.gitignore', 'assets/template/ignored-tracked']);
+  writeFileSync(join(f.source, 'touch-grass/assets/template/.gitignore'), 'ignored-tracked\n');
+  writeFileSync(join(f.source, 'touch-grass/assets/template/ignored-tracked'), 'tracked despite ignore');
+  git(f.source, ['add', '--force', 'touch-grass/assets/template/.gitignore', 'touch-grass/assets/template/ignored-tracked']);
   git(f.source, ['commit', '-qm', 'Tracked ignored fixture']);
-  scaffold(f.project, f.source);
+  scaffold(f.project, f.template);
   assert.equal(git(f.target, ['show', 'HEAD:ignored-tracked']), 'tracked despite ignore');
 });
 
@@ -426,12 +459,12 @@ test('failed real commit hook resumes without duplicate commit or recopying user
     count = 0;
     path(...parts) { if (parts[0] === '.hidden' && ++this.count === 2) throw new Error('stop after init'); return super.path(...parts); }
   }
-  assert.throws(() => scaffold(new Interrupted(f.target), f.source));
+  assert.throws(() => scaffold(new Interrupted(f.target), f.template));
   const hook = join(f.target, '.git/hooks/pre-commit'); writeFileSync(hook, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-  assert.throws(() => scaffold(f.project, f.source), /git commit exited/);
+  assert.throws(() => scaffold(f.project, f.template), /git commit exited/);
   for (const path of Object.keys(f.entries)) assert.ok(existsSync(join(f.target, path)));
   assert.equal(readJournal(f.project).initialCommit, undefined);
-  rmSync(hook); scaffold(f.project, f.source); scaffold(f.project, f.source);
+  rmSync(hook); scaffold(f.project, f.template); scaffold(f.project, f.template);
   assert.equal(git(f.target, ['rev-list', '--count', 'HEAD']), '1');
 });
 
@@ -441,11 +474,11 @@ test('resume remains pinned when the template source advances', t => {
     count = 0;
     path(...parts) { if (parts[0] === '.hidden' && ++this.count === 2) throw new Error('stop'); return super.path(...parts); }
   }
-  assert.throws(() => scaffold(new Interrupted(f.target), f.source));
+  assert.throws(() => scaffold(new Interrupted(f.target), f.template));
   const pinned = readJournal(f.project).revision;
-  writeFileSync(join(f.source, 'assets/template/.hidden'), 'new source revision');
-  git(f.source, ['add', 'assets/template/.hidden']); git(f.source, ['commit', '-qm', 'Source advanced']);
-  scaffold(f.project, f.source);
+  writeFileSync(join(f.source, 'touch-grass/assets/template/.hidden'), 'new source revision');
+  git(f.source, ['add', 'touch-grass/assets/template/.hidden']); git(f.source, ['commit', '-qm', 'Source advanced']);
+  scaffold(f.project, f.template);
   assert.equal(readFileSync(join(f.target, '.hidden'), 'utf8'), f.entries['.hidden']);
   assert.equal(readJournal(f.project).revision, pinned);
 });
@@ -454,11 +487,11 @@ test('plain reinvocation resumes bootstrap before publication and verifies after
   const f = fixture(t);
   assert.deepEqual(route(f.target), { kind: 'bootstrap', reason: 'new' });
   const relative = '.agents/skills/touch-grass/SKILL.md';
-  mkdirSync(dirname(join(f.source, 'assets/template', relative)), { recursive: true });
-  writeFileSync(join(f.source, 'assets/template', relative), 'Repository verifier');
-  git(f.source, ['add', 'assets/template/.agents']);
+  mkdirSync(dirname(join(f.source, 'touch-grass/assets/template', relative)), { recursive: true });
+  writeFileSync(join(f.source, 'touch-grass/assets/template', relative), 'Repository verifier');
+  git(f.source, ['add', 'touch-grass/assets/template/.agents']);
   git(f.source, ['commit', '-qm', 'Add local verifier']);
-  scaffold(f.project, f.source);
+  scaffold(f.project, f.template);
   assert.ok(existsSync(join(f.target, relative)));
   assert.deepEqual(route(f.target), { kind: 'bootstrap', reason: 'interrupted' });
   const before = spawnSync(join(scripts, 'tg'), ['route', '--json'], { cwd: f.target, encoding: 'utf8' });

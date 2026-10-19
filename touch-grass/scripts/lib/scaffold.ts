@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, sep } from 'node:path';
 import { must, run, StepError } from './exec.ts';
-import { Project, sourceRoot } from './project.ts';
+import { Project, templateRoot } from './project.ts';
 
 type FileEntry = { path: string; mode: '100644' | '100755'; blob: string };
 export type RemoteBinding = { owner: string; name: string } & (
@@ -47,18 +47,40 @@ export function saveJournal(project: Project, journal: Journal): void {
   chmodSync(temp, 0o600);
   renameSync(temp, path);
 }
-function snapshot(source: string): Pick<Journal, 'source' | 'revision' | 'tree' | 'files'> {
-  const revision = must('git', ['rev-parse', 'HEAD'], { cwd: source }).trim();
-  const tree = must('git', ['rev-parse', `${revision}:assets/template`], { cwd: source }).trim();
-  const files = must('git', ['ls-tree', '-rz', revision, '--', 'assets/template/'], { cwd: source }).split('\0').filter(Boolean).map((entry): FileEntry => {
-    const match = /^(100644|100755) blob ([a-f0-9]{40,64})\tassets\/template\/(.+)$/s.exec(entry);
-    if (!match || !match[1] || !match[2] || !match[3] || !safePath(match[3])) throw new StepError('Template contains an unsupported mode or unsafe path.');
-    const mode = match[1];
-    if (mode !== '100644' && mode !== '100755') throw new StepError('Unsupported file mode.');
-    return { mode, blob: match[2], path: match[3] };
+type Snapshot = Pick<Journal, 'source' | 'revision' | 'tree' | 'files'>;
+function entries(listing: string, prefix: string): FileEntry[] {
+  const files = listing.split('\0').filter(Boolean).map((entry): FileEntry => {
+    const tab = entry.indexOf('\t');
+    const [mode, type, blob] = entry.slice(0, tab).split(' ');
+    const path = entry.slice(tab + 1);
+    if (type !== 'blob' || (mode !== '100644' && mode !== '100755') || !blob || !hash.test(blob) || !path.startsWith(prefix) || !safePath(path.slice(prefix.length))) throw new StepError('Template contains an unsupported mode or unsafe path.');
+    return { mode, blob, path: path.slice(prefix.length) };
   });
-  if (!files.length) throw new StepError('Committed template is empty.');
-  return { source, revision, tree, files };
+  if (!files.length) throw new StepError('Template is empty.');
+  return files;
+}
+/** The template as committed in the checkout that tracks it, so uncommitted edits and untracked files never ship. */
+function committedSnapshot(template: string): Snapshot | undefined {
+  const top = run('git', ['rev-parse', '--show-toplevel'], { cwd: template });
+  if (top.status !== 0) return undefined;
+  const source = top.stdout.trim();
+  const prefix = relative(realpathSync(source), realpathSync(template)).split(sep).join('/');
+  const head = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: source });
+  if (!prefix || head.status !== 0) return undefined;
+  const revision = head.stdout.trim();
+  const listing = must('git', ['ls-tree', '-rz', revision, '--', `${prefix}/`], { cwd: source });
+  if (!listing) return undefined;
+  const tree = must('git', ['rev-parse', `${revision}:${prefix}`], { cwd: source }).trim();
+  return { source, revision, tree, files: entries(listing, `${prefix}/`) };
+}
+/** A copied install has no checkout. Import the installed files, minus the template's ignored ones, into a private object store. */
+function installedSnapshot(project: Project, template: string): Snapshot {
+  const store = join(project.stateDir, 'template.git');
+  must('git', ['init', '--quiet', '--bare', store]);
+  const git = (args: string[]) => must('git', ['-c', 'core.excludesFile=/dev/null', '--git-dir', store, '--work-tree', template, ...args], { env: { GIT_INDEX_FILE: join(store, 'template.index') } });
+  git(['add', '--all', '--', '.']);
+  const tree = git(['write-tree']).trim();
+  return { source: store, revision: tree, tree, files: entries(git(['ls-tree', '-rz', tree]), '') };
 }
 function blob(journal: Journal, file: FileEntry): Buffer {
   const result = spawnSync('git', ['cat-file', 'blob', file.blob], { cwd: journal.source, maxBuffer: 64 * 1024 * 1024 });
@@ -108,16 +130,21 @@ function ensureIdentity(project: Project): void {
   if (!name) must('git', ['config', '--local', 'user.name', login], { cwd: project.root });
   if (!email) must('git', ['config', '--local', 'user.email', `${id}+${login}@users.noreply.github.com`], { cwd: project.root });
 }
-export function scaffold(project: Project, source = sourceRoot): void {
+export function scaffold(project: Project, template = templateRoot): void {
   let journal = readJournal(project);
   if (journal?.initialCommit) { scaffoldDone(project); return; }
   if (!journal) {
     if (readdirSync(project.root).some(n => n !== '.DS_Store' || !lstatSync(project.path(n)).isFile() || lstatSync(project.path(n)).isSymbolicLink())) throw new StepError('Bootstrap requires an empty directory, except .DS_Store. Existing files and Git checkouts are preserved.');
-    const pinned = snapshot(source);
+    const committed = committedSnapshot(template);
     mkdirSync(project.path('.git'), { mode: 0o700 });
     mkdirSync(project.stateDir, { mode: 0o700 });
-    journal = { version: 1, root: project.root, ...pinned };
-    saveJournal(project, journal);
+    try {
+      journal = { version: 1, root: project.root, ...(committed ?? installedSnapshot(project, template)) };
+      saveJournal(project, journal);
+    } catch (error) {
+      rmSync(project.path('.git'), { recursive: true, force: true });
+      throw error;
+    }
   }
   must('git', ['init', '--quiet', '--initial-branch=main'], { cwd: project.root });
   const branch = must('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: project.root }).trim();

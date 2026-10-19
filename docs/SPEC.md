@@ -8,9 +8,9 @@
 
 | Part | State |
 |---|---|
-| Template (`assets/template/`) | Implemented. [ARCHITECTURE.md](ARCHITECTURE.md) is its specification. |
-| Repository-local `$touch-grass` verification skill | Implemented, at `assets/template/.agents/skills/touch-grass/SKILL.md`. |
-| Bundled third-party agent skills | Implemented and pinned. See `assets/template/.agents/skills/UPSTREAM.md`. |
+| Template (`touch-grass/assets/template/`) | Implemented. [ARCHITECTURE.md](ARCHITECTURE.md) is its specification. |
+| Repository-local `$touch-grass` verification skill | Implemented, at `touch-grass/assets/template/.agents/skills/touch-grass/SKILL.md`. |
+| Bundled third-party agent skills | Implemented and pinned. See `touch-grass/assets/template/.agents/skills/UPSTREAM.md`. |
 | Global `$touch-grass` skill (`touch-grass/SKILL.md`) | Implemented. Default GitHub bootstrap with local verification, and a separate guided staging reference. |
 | Provisioning scripts | Implemented. Pinned committed snapshot, private recovery journal and conservative GitHub identity checks. Offline fixture verification only; no live resources created for implementation tests. |
 | Guided staging (`tg staging`, `touch-grass/references/staging.md`) | Implemented. On 19 October 2026 the flow ran against a real Supabase project, Google OAuth client, OpenAI key and Cloudflare Worker, including real Google sign-in and a tool-using model reply. The helper's project-creation path is covered by offline tests only. |
@@ -30,7 +30,7 @@ The global skill orchestrates safe local and GitHub steps, local verification, a
 
 - **Interface:** Globally installed agent skill (`touch-grass/SKILL.md`), for Codex or Claude Code.
 - **Stack:** Hardcoded and opinionated. No alternatives. TanStack Start with React and TypeScript, on Cloudflare Workers and Workflows, with Supabase for PostgreSQL and Auth, Google sign-in, and the OpenAI Agents SDK against any OpenAI-compatible provider. [ARCHITECTURE.md](ARCHITECTURE.md) lists the full stack.
-- **Scaffolding:** The working template in `assets/template/`. It holds application code, two reference features (Account and Agent Chat), database migrations and SQL tests, unit, Workers, and E2E tests, boundary enforcement, a CI workflow, a Workers Builds deploy command (`pnpm cf:deploy`), `AGENTS.md`, and bundled agent skills. No external templates or dynamic code generation.
+- **Scaffolding:** The working template in `touch-grass/assets/template/`. It holds application code, two reference features (Account and Agent Chat), database migrations and SQL tests, unit, Workers, and E2E tests, boundary enforcement, a CI workflow, a Workers Builds deploy command (`pnpm cf:deploy`), `AGENTS.md`, and bundled agent skills. No external templates or dynamic code generation.
 - **Provisioning:** Deterministic scripts copy the template, initialize Git, create a private GitHub repository, and push the initial commit.
   - Copy only the template's Git-tracked files. The working directory also holds build and test output (`node_modules/`, `dist/`, `test-results/`, `.wrangler/`, `.tanstack/`, `.dev.vars`), which the template's `.gitignore` excludes and which must never reach the new repository.
   - Keep `pnpm-lock.yaml`. Every check installs with `--frozen-lockfile`.

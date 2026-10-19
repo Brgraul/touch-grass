@@ -25,7 +25,7 @@ Everything runs on your computer. The agent opens the terminal tabs and browser 
 
 ## Install
 
-Clone this repository and install the skill. Keep the checkout in place because the skill uses its sibling template.
+Clone this repository and install the skill. The `touch-grass/` folder is self-contained: it carries the app template in `touch-grass/assets/template`.
 
 ```sh
 git clone https://github.com/Brgraul/touch-grass.git
@@ -33,7 +33,7 @@ cd touch-grass
 node touch-grass/scripts/install.mjs
 ```
 
-The installer links into `${CODEX_HOME:-~/.codex}/skills` by default. For Claude Code, pass `--skills-dir ~/.claude/skills`. It is rerunnable and preserves unrelated installations. Restart or refresh your agent's skill discovery after installation.
+The installer symlinks the folder into `${CODEX_HOME:-~/.codex}/skills` by default, so a `git pull` updates the skill. A plain copy of `touch-grass/` into any skills directory also works. For Claude Code, pass `--skills-dir ~/.claude/skills`. It is rerunnable and preserves unrelated installations. Restart or refresh your agent's skill discovery after installation.
 
 Run the skill's regression checks without provisioning live resources:
 

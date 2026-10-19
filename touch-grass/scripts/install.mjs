@@ -6,11 +6,11 @@ import { homedir } from 'node:os';
 import { parseArgs } from 'node:util';
 try {
   const { values, positionals } = parseArgs({ options: { 'skills-dir': { type: 'string' }, help: { type: 'boolean', short: 'h' } } });
-  if (values.help) { process.stdout.write('Usage: node install.mjs [--skills-dir <directory>]\nSymlinks touch-grass to this checkout; keep assets/template alongside it.\n'); }
+  if (values.help) { process.stdout.write('Usage: node install.mjs [--skills-dir <directory>]\nSymlinks touch-grass to this checkout. Copying the touch-grass folder into a skills directory also works.\n'); }
   else {
     if (positionals.length) throw new Error('Unexpected argument.');
     const skill = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
-    if (!existsSync(join(skill, 'SKILL.md')) || !existsSync(resolve(skill, '../assets/template'))) throw new Error('Install from the complete Touch Grass checkout.');
+    if (!existsSync(join(skill, 'SKILL.md')) || !existsSync(join(skill, 'assets', 'template'))) throw new Error('Install from the complete Touch Grass checkout.');
     const directory = resolve(values['skills-dir'] ?? join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'skills'));
     mkdirSync(directory, { recursive: true });
     const destination = join(directory, 'touch-grass');
