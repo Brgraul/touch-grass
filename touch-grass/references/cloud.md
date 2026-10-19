@@ -86,11 +86,14 @@ Native CLI 2.121.0 confines service environments and omits the parent's proxy va
 
 Once the chosen local-stack route and Chrome are available, create `supabase/.env` with test placeholders only when absent, then start the stack with that route's validated command. The Docker route uses `pnpm exec supabase start` below. Preserve existing files.
 
+Supabase's normal startup and status output includes local keys. Capture it in private files and report parsed lifecycle/readiness fields or credential-free errors. Keep reusable helpers from printing raw CLI output.
+
 ```sh
 if [ ! -e supabase/.env ]; then
   (umask 077; set -C; printf '%s\n' 'SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID=local-test-client' 'SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET=local-test-secret' > supabase/.env)
 fi
-pnpm exec supabase start
+start_log=$(mktemp)
+(umask 077; pnpm exec supabase start > "$start_log" 2>&1)
 if [ ! -e .dev.vars ]; then pnpm dev:vars; fi
 ```
 
