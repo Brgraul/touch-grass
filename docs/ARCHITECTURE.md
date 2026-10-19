@@ -37,7 +37,7 @@ It also ships working authentication, account management, shared UI, CI, and dep
 
 ### What the template contains
 
-The template contains application code, database definitions, tests, CI, deployment commands, agent guidance, and bundled agent skills. Repository creation, cloud-environment provisioning, and provider account creation happen outside the template.
+The template contains application code, database definitions, tests, CI, deployment commands, agent guidance, and bundled agent skills. Repository creation, hosted-environment provisioning, and provider account creation happen outside the template.
 
 ### Stack
 

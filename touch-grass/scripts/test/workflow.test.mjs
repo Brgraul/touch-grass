@@ -9,7 +9,7 @@ import { Project } from '../lib/project.ts';
 import { readJournal, saveJournal, scaffold, scaffoldDone } from '../lib/scaffold.ts';
 import { ensureGithub, githubDone, githubSteps, normalizeOrigin } from '../steps/github.ts';
 import { evaluate, exitCode, report, validateSteps } from '../lib/engine.ts';
-import { codexSteps } from '../steps/codex.ts';
+import { verificationSteps } from '../steps/local.ts';
 import { must } from '../lib/exec.ts';
 import { route } from '../lib/routing.ts';
 
@@ -285,16 +285,16 @@ test('published rerun never pushes later work or rewinds remote main', t => {
   assert.equal(f.github.calls().filter(c => c.command === 'git-push').length, 1);
 });
 
-test('empty, local-only and cloud handoff outcomes stay incomplete', async t => {
+test('empty, provisioning-only and unobserved local verification stay incomplete', async t => {
   const f = fixture(t);
   assert.equal(exitCode([]), 2);
   const local = { id: 'github-repo', group: 'provisioning', title: 'Local', state: 'done', summary: 'ready' };
   assert.equal(exitCode([local]), 2);
   const script = { ...local, actor: 'script', needs: [], observe: async () => ({ done: true, summary: 'ready' }), apply: async () => {} };
-  const outcomes = await evaluate([script, ...codexSteps], f.project, 'run');
+  const outcomes = await evaluate([script, ...verificationSteps], f.project, 'run');
   assert.equal(exitCode(outcomes), 2);
-  assert.deepEqual([report(outcomes).provisioning, report(outcomes).verification, report(outcomes).deployment], ['pending', 'pending', 'not configured']);
-  assert.equal(outcomes.find(o => o.id === 'cloud-verification').state, 'waiting');
+  assert.deepEqual([report(outcomes).provisioning, report(outcomes).verification, report(outcomes).deployment], ['complete', 'pending', 'not configured']);
+  assert.equal(outcomes.find(o => o.id === 'local-verification').state, 'waiting');
   assert.throws(() => validateSteps([script, script]));
   assert.throws(() => validateSteps([{ ...script, needs: ['missing'] }]));
 });
@@ -311,7 +311,7 @@ test('CLI help, invalid args, read-only status and complete offline fixture', t 
   const status = cli('status', '--json'); assert.equal(status.status, 2); assert.equal(f.github.state().exists, false);
   const result = cli('run', '--json'); assert.equal(result.status, 2, result.stderr);
   const value = JSON.parse(result.stdout);
-  assert.equal(value.provisioning, 'pending'); assert.equal(value.verification, 'pending'); assert.equal(value.deployment, 'not configured');
+  assert.equal(value.provisioning, 'complete'); assert.equal(value.verification, 'pending'); assert.equal(value.deployment, 'not configured');
   assert.equal(value.outcomes.find(o => o.id === 'github-repo').state, 'done');
   assert.equal(git(f.target, ['rev-parse', 'HEAD']), before);
   assert.equal(f.github.calls().some(c => JSON.stringify(c).includes('production')), false);

@@ -7,7 +7,7 @@ description: Verify that this repository installs, builds, and passes its full c
 
 Run the four checks below in order from the repository root. Stop at the first failure and report the rest as not run. Report each check on its own line as `passed`, `failed`, or `not run`, with one sentence of evidence or the reason.
 
-This skill is safe to repeat. It reads the repository and writes only the local `node_modules/`, `dist/`, and test output directories. It never creates cloud resources, links a Supabase project, pushes migrations, deploys, or writes secrets.
+This skill is safe to repeat. It reads the repository and writes only the local `node_modules/`, `dist/`, and test output directories. It never creates cloud resources, links a Supabase project, pushes migrations, deploys, or writes secrets. For a staging or deployed environment, use the globally installed `touch-grass` skill's staging guide instead.
 
 1. **Repository access.** Confirm the current directory holds `package.json` and `wrangler.jsonc`. Run `git ls-remote --exit-code origin HEAD`. If the repository has no `origin`, report this check as `not run` and continue.
 2. **Install.** Run `pnpm install --frozen-lockfile`. A lockfile mismatch is a failure. Do not fix it by running `pnpm install` without the flag.
