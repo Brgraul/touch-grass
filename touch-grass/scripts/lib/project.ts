@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { run, StepError } from './exec.ts';
 
 export const skillRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-export const templateRoot = join(skillRoot, 'assets', 'template');
+export const templateBundle = join(skillRoot, 'assets', 'template.bundle');
 export class Project {
   readonly root: string;
   readonly slug: string;

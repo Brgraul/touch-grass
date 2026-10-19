@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { bundleRef } from './bundle.ts';
 import { must, run, StepError } from './exec.ts';
-import { Project, templateRoot } from './project.ts';
+import { Project, templateBundle } from './project.ts';
 
 type FileEntry = { path: string; mode: '100644' | '100755'; blob: string };
 export type RemoteBinding = { owner: string; name: string } & (
@@ -59,32 +60,17 @@ function entries(listing: string, prefix: string): FileEntry[] {
   if (!files.length) throw new StepError('Template is empty.');
   return files;
 }
-/** The template as committed in the checkout that tracks it, so uncommitted edits and untracked files never ship. */
-function committedSnapshot(template: string): Snapshot | undefined {
-  const top = run('git', ['rev-parse', '--show-toplevel'], { cwd: template });
-  if (top.status !== 0) return undefined;
-  const source = top.stdout.trim();
-  const prefix = relative(realpathSync(source), realpathSync(template)).split(sep).join('/');
-  const head = run('git', ['rev-parse', '--verify', 'HEAD'], { cwd: source });
-  if (!prefix || head.status !== 0) return undefined;
-  const revision = head.stdout.trim();
-  const listing = must('git', ['ls-tree', '-rz', revision, '--', `${prefix}/`], { cwd: source });
-  if (!listing) return undefined;
-  const tree = must('git', ['rev-parse', `${revision}:${prefix}`], { cwd: source }).trim();
-  return { source, revision, tree, files: entries(listing, `${prefix}/`) };
+/** Fetches the shipped template bundle into the new repository. Its ref keeps the objects reachable until the initial commit. */
+function bundleSnapshot(project: Project, bundle: string): Snapshot {
+  if (!existsSync(bundle)) throw new StepError('The skill has no assets/template.bundle. Reinstall the skill.');
+  must('git', ['fetch', '--quiet', '--no-tags', bundle, `+${bundleRef}:${bundleRef}`], { cwd: project.root });
+  const revision = must('git', ['rev-parse', '--verify', `${bundleRef}^{commit}`], { cwd: project.root }).trim();
+  const tree = must('git', ['rev-parse', `${revision}^{tree}`], { cwd: project.root }).trim();
+  return { source: bundle, revision, tree, files: entries(must('git', ['ls-tree', '-rz', tree], { cwd: project.root }), '') };
 }
-/** A copied install has no checkout. Import the installed files, minus the template's ignored ones, into a private object store. */
-function installedSnapshot(project: Project, template: string): Snapshot {
-  const store = join(project.stateDir, 'template.git');
-  must('git', ['init', '--quiet', '--bare', store]);
-  const git = (args: string[]) => must('git', ['-c', 'core.excludesFile=/dev/null', '--git-dir', store, '--work-tree', template, ...args], { env: { GIT_INDEX_FILE: join(store, 'template.index') } });
-  git(['add', '--all', '--', '.']);
-  const tree = git(['write-tree']).trim();
-  return { source: store, revision: tree, tree, files: entries(git(['ls-tree', '-rz', tree]), '') };
-}
-function blob(journal: Journal, file: FileEntry): Buffer {
-  const result = spawnSync('git', ['cat-file', 'blob', file.blob], { cwd: journal.source, maxBuffer: 64 * 1024 * 1024 });
-  if (result.status !== 0) throw new StepError('Pinned template blob is unavailable. Restore the original source checkout.');
+function blob(project: Project, file: FileEntry): Buffer {
+  const result = spawnSync('git', ['cat-file', 'blob', file.blob], { cwd: project.root, maxBuffer: 64 * 1024 * 1024 });
+  if (result.status !== 0) throw new StepError('Pinned template blob is unavailable in this repository. Inspect .git before retrying.');
   return result.stdout;
 }
 function validateTree(project: Project, journal: Journal): void {
@@ -105,7 +91,7 @@ function validateTree(project: Project, journal: Journal): void {
   walk('');
   for (const file of journal.files) {
     const path = project.path(file.path);
-    if (existsSync(path) && (!readFileSync(path).equals(blob(journal, file)) || (lstatSync(path).mode & 0o111) !== (file.mode === '100755' ? 0o111 : 0))) throw new StepError(`Interrupted scaffold conflicts with ${file.path}; its contents were preserved.`);
+    if (existsSync(path) && (!readFileSync(path).equals(blob(project, file)) || (lstatSync(path).mode & 0o111) !== (file.mode === '100755' ? 0o111 : 0))) throw new StepError(`Interrupted scaffold conflicts with ${file.path}; its contents were preserved.`);
   }
 }
 function initialValid(project: Project, journal: Journal, commit: string): boolean {
@@ -130,16 +116,15 @@ function ensureIdentity(project: Project): void {
   if (!name) must('git', ['config', '--local', 'user.name', login], { cwd: project.root });
   if (!email) must('git', ['config', '--local', 'user.email', `${id}+${login}@users.noreply.github.com`], { cwd: project.root });
 }
-export function scaffold(project: Project, template = templateRoot): void {
+export function scaffold(project: Project, bundle = templateBundle): void {
   let journal = readJournal(project);
   if (journal?.initialCommit) { scaffoldDone(project); return; }
   if (!journal) {
     if (readdirSync(project.root).some(n => n !== '.DS_Store' || !lstatSync(project.path(n)).isFile() || lstatSync(project.path(n)).isSymbolicLink())) throw new StepError('Bootstrap requires an empty directory, except .DS_Store. Existing files and Git checkouts are preserved.');
-    const committed = committedSnapshot(template);
-    mkdirSync(project.path('.git'), { mode: 0o700 });
-    mkdirSync(project.stateDir, { mode: 0o700 });
+    must('git', ['init', '--quiet', '--initial-branch=main'], { cwd: project.root });
     try {
-      journal = { version: 1, root: project.root, ...(committed ?? installedSnapshot(project, template)) };
+      mkdirSync(project.stateDir, { mode: 0o700 });
+      journal = { version: 1, root: project.root, ...bundleSnapshot(project, bundle) };
       saveJournal(project, journal);
     } catch (error) {
       rmSync(project.path('.git'), { recursive: true, force: true });
@@ -161,7 +146,7 @@ export function scaffold(project: Project, template = templateRoot): void {
     const target = project.path(file.path);
     if (existsSync(target)) continue;
     mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, blob(journal, file), { flag: 'wx', mode: file.mode === '100755' ? 0o755 : 0o644 });
+    writeFileSync(target, blob(project, file), { flag: 'wx', mode: file.mode === '100755' ? 0o755 : 0o644 });
     chmodSync(target, file.mode === '100755' ? 0o755 : 0o644);
   }
   must('git', ['--literal-pathspecs', 'add', '--force', '--pathspec-from-file=-', '--pathspec-file-nul'], { cwd: project.root, input: journal.files.map(file => file.path).join('\0') + '\0' });
@@ -169,4 +154,5 @@ export function scaffold(project: Project, template = templateRoot): void {
   must('git', ['commit', '--quiet', '-m', 'Initial commit from Touch Grass'], { cwd: project.root });
   journal.initialCommit = must('git', ['rev-parse', 'HEAD'], { cwd: project.root }).trim();
   saveJournal(project, journal);
+  run('git', ['update-ref', '-d', bundleRef], { cwd: project.root });
 }

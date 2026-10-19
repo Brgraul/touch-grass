@@ -5,7 +5,7 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "types": ["node"],
-    "typeRoots": ["../assets/template/node_modules/@types"],
+    "typeRoots": ["../../template/node_modules/@types"],
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,

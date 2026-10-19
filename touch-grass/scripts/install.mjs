@@ -10,7 +10,7 @@ try {
   else {
     if (positionals.length) throw new Error('Unexpected argument.');
     const skill = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
-    if (!existsSync(join(skill, 'SKILL.md')) || !existsSync(join(skill, 'assets', 'template'))) throw new Error('Install from the complete Touch Grass checkout.');
+    if (!existsSync(join(skill, 'SKILL.md')) || !existsSync(join(skill, 'assets', 'template.bundle'))) throw new Error('Install from the complete Touch Grass checkout.');
     const directory = resolve(values['skills-dir'] ?? join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'skills'));
     mkdirSync(directory, { recursive: true });
     const destination = join(directory, 'touch-grass');

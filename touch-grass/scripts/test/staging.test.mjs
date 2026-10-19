@@ -7,11 +7,11 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { configureSupabase, configureWrangler, deployRefs, readStored, redact, secretsPath, sessionPoolerUrl, updateStored } from '../lib/staging.ts';
 import { supabase } from '../staging.ts';
-import { findPlaceholder } from '../../assets/template/tools/placeholders.ts';
-import { parseTarget } from '../../assets/template/tools/deploy.ts';
+import { findPlaceholder } from '../../../template/tools/placeholders.ts';
+import { parseTarget } from '../../../template/tools/deploy.ts';
 
 const scripts = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const template = resolve(scripts, '../assets/template');
+const template = resolve(scripts, '../../template');
 const wrangler = readFileSync(join(template, 'wrangler.jsonc'), 'utf8');
 const supabaseToml = readFileSync(join(template, 'supabase/config.toml'), 'utf8');
 const settings = { repo: 'fresh-app', subdomain: 'acme', projectRef: 'abcdefghijklmnopqrst', publishableKey: 'sb_publishable_test', environmentId: '11111111-2222-4333-8444-555555555555' };
