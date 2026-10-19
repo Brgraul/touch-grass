@@ -4,10 +4,12 @@ import { StepError } from './lib/exec.ts';
 import { findProjectRoot, Project } from './lib/project.ts';
 import { staging } from './staging.ts';
 import { steps } from './steps/index.ts';
-const usage = `Usage: tg <status|run|verify> [--json] | tg staging <command> (see tg staging --help)
+import { watch } from './watch.ts';
+const usage = `Usage: tg <status|run|verify> [--json] | tg watch | tg staging <command> (see tg staging --help)
   status  Observe provisioning and local verification without writes.
   run     Converge provisioning: scaffold and push. A repository generated earlier needs no provisioning.
   verify  Run the repository's pnpm verify and record a pass only for the clean HEAD it tested. Needs provisioning complete.
+  watch   Show live progress of the three setup steps. For the person, in a terminal they can see. Runs until interrupted.
 Exit 0 means the command's goal is complete, 2 means incomplete and 1 means failure.`;
 // What each command may apply, and which groups must be done for it to exit 0.
 const modes: Record<string, { apply: readonly Group[]; required: readonly Group[] }> = {
@@ -17,6 +19,7 @@ const modes: Record<string, { apply: readonly Group[]; required: readonly Group[
 };
 try {
   if (process.argv[2] === 'staging') process.exitCode = await staging(process.argv.slice(3));
+  else if (process.argv[2] === 'watch') process.exitCode = await watch(findProjectRoot());
   else {
     const { positionals, values } = parseArgs({ allowPositionals: true, options: { json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
     const [command = ''] = positionals;

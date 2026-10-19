@@ -54,6 +54,8 @@ begin
   result := agent_chat_api.start_run(v_run_id, 20, 524288);
   assert result->>'kind' = 'started' and result#>>'{input,runId}' = v_run_id::text, 'start returns the run and frozen history';
   assert result#>'{input,policy}' = '{"maxSteps":8,"maxToolCallsPerStep":4}', 'policy snapshot survives admission';
+  assert result#>>'{input,conversationId}' = (select r.conversation_id::text from agent_chat.runs r where r.id = v_run_id),
+    'start returns the run''s conversation';
   result := agent_chat_api.commit_step(v_run_id, 1, '[{"kind":"tool_call","callId":"call-1","tool":"calculate","input":{"expression":"2+2"}},{"kind":"tool_result","callId":"call-1","output":{"value":4},"isError":false}]', false, '{"inputTokens":10,"outputTokens":5}');
   assert result->>'kind' = 'committed', 'a nonfinal step commits';
   select version into before_version from agent_chat.runs where id = v_run_id;
@@ -80,7 +82,9 @@ begin
   end;
   assert denied, 'service_role cannot forge an agent turn';
   result := agent_chat_api.commit_step(v_run_id, 2, '[{"kind":"text","text":"4"}]', true, '{"inputTokens":12,"outputTokens":1}');
-  assert result->>'kind' = 'ended', 'final commit returns ended';
+  assert result->>'kind' = 'completed', 'final commit returns completed';
+  result := agent_chat_api.commit_step(v_run_id, 2, '[{"kind":"text","text":"4"}]', true, '{"inputTokens":12,"outputTokens":1}');
+  assert result->>'kind' = 'completed', 'a repeated final commit returns completed again';
   result := agent_chat_api.cancel_run(a, v_run_id);
   assert result->>'state' = 'completed' and result->>'finalTurn' is not null, 'completion atomically stores its final turn and wins later cancellation';
   result := agent_chat_api.fail_run(v_run_id, '{"kind":"execution","code":"internal"}');

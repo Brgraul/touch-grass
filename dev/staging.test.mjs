@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { configureSupabase, configureWrangler, deployRefs, readStored, redact, secretsPath, sessionPoolerUrl, updateStored } from '../skills/touch-grass/scripts/lib/staging.ts';
+import { configureSupabase, configureWrangler, deployRefs, parseSecretName, readStored, redact, secretsPath, sessionPoolerUrl, traceCheckEnv, updateStored, workerSecrets } from '../skills/touch-grass/scripts/lib/staging.ts';
+import { pipe } from '../skills/touch-grass/scripts/lib/events.ts';
 import { supabase } from '../skills/touch-grass/scripts/staging.ts';
 import { findPlaceholder } from '../template/tools/placeholders.ts';
 import { parseTarget } from '../template/tools/deploy.ts';
@@ -108,15 +109,16 @@ test('redact hides stored values but leaves short and absent ones', () => {
   assert.equal(redact('key=sb_secret_123456 ref=abc', ['sb_secret_123456', 'abc', undefined]), 'key=<redacted> ref=abc');
 });
 
-test('streamed command output never shows a hidden value', t => {
+test('piped command output never shows a hidden value in its tail, log or progress events', async t => {
   const secret = 'sk-live-should-not-print';
-  const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
-    import { stream } from ${JSON.stringify(join(scripts, 'staging.ts'))};
-    process.exitCode = await stream(process.execPath, ['-e', 'console.log("a ${secret} b"); console.error("${secret}")'], process.cwd(), process.env, [${JSON.stringify(secret)}]);
-  `], { cwd: tempDir(t), encoding: 'utf8' });
-  assert.equal(child.status, 0, child.stderr);
-  assert.doesNotMatch(child.stdout + child.stderr, new RegExp(secret));
-  assert.match(child.stdout, /a <redacted> b/);
+  const dir = tempDir(t);
+  spawnSync('git', ['init', '-q'], { cwd: dir });
+  const { code, tail, log } = await pipe(dir, 'deploy', process.execPath, ['-e', `console.log("a ${secret} b"); console.error("${secret}")`], { hidden: [secret] });
+  assert.equal(code, 0);
+  const events = readFileSync(join(dirname(dirname(log)), 'events.jsonl'), 'utf8');
+  for (const text of [tail.join('\n'), readFileSync(log, 'utf8'), events]) assert.doesNotMatch(text, new RegExp(secret));
+  assert.ok(tail.includes('a <redacted> b'));
+  assert.match(events, /"step":"deploy","line":"a <redacted> b"/);
 });
 
 function supabaseApi(t, routes) {
@@ -201,4 +203,25 @@ test('staging CLI prints help, names a bad flag, and refuses to run outside a ge
   const outside = cli('status');
   assert.equal(outside.status, 1);
   assert.match(outside.stderr, /generated repository root/);
+});
+
+test('a deploy installs the Langfuse keys only as a pair, and set accepts them', () => {
+  const required = { SUPABASE_SECRET_KEY: 'sb_secret_value', LLM_API_KEY: 'llm' };
+  assert.deepEqual(workerSecrets(required).map(([name]) => name), ['SUPABASE_SECRET_KEY', 'LLM_API_KEY']);
+  assert.deepEqual(workerSecrets({ ...required, LANGFUSE_PUBLIC_KEY: 'pk-lf', LANGFUSE_SECRET_KEY: 'sk-lf' }).map(([name]) => name), ['SUPABASE_SECRET_KEY', 'LLM_API_KEY', 'LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY']);
+  assert.throws(() => workerSecrets({ ...required, LANGFUSE_PUBLIC_KEY: 'pk-lf' }), /both LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY/);
+  assert.equal(parseSecretName('LANGFUSE_SECRET_KEY'), 'LANGFUSE_SECRET_KEY');
+  assert.throws(() => parseSecretName('LANGFUSE_HOST'));
+});
+
+test('trace-check runs the Langfuse e2e against the configured app with the stored secrets, and refuses until both are ready', () => {
+  const vars = envVars(configureWrangler(wrangler, 'dev', settings).text, 'dev');
+  const stored = { SUPABASE_SECRET_KEY: 'sb_secret_value', LANGFUSE_PUBLIC_KEY: 'pk-lf-test', LANGFUSE_SECRET_KEY: 'sk-lf-test' };
+  assert.deepEqual(traceCheckEnv(vars, stored), {
+    EXTERNAL_APP: '1', APP_URL: 'https://fresh-app-dev.acme.workers.dev', SUPABASE_URL: `https://${settings.projectRef}.supabase.co`,
+    SUPABASE_PUBLISHABLE_KEY: settings.publishableKey, ...stored,
+  });
+  assert.equal(traceCheckEnv({ ...vars, LANGFUSE_BASE_URL: 'https://us.cloud.langfuse.com' }, stored).LANGFUSE_BASE_URL, 'https://us.cloud.langfuse.com');
+  assert.throws(() => traceCheckEnv(vars, { ...stored, LANGFUSE_SECRET_KEY: undefined }), /tg staging set LANGFUSE_SECRET_KEY/);
+  assert.throws(() => traceCheckEnv(envVars(wrangler, 'dev'), stored), /tg staging configure/);
 });

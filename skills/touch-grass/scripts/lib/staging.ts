@@ -1,5 +1,6 @@
 import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
+import type { ProgressStep } from './events.ts';
 import { StepError } from './exec.ts';
 
 export const environments = ['dev', 'production'] as const;
@@ -7,12 +8,28 @@ export type Environment = (typeof environments)[number];
 
 /** Values a deploy needs that never enter the repository. The Supabase access token stays in the CLI's own store. */
 export const secretNames = ['SUPABASE_PROJECT_REF', 'SUPABASE_DB_PASSWORD', 'SUPABASE_DB_URL', 'SUPABASE_SECRET_KEY', 'SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID', 'SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET', 'LLM_API_KEY'] as const;
+/** Langfuse tracing stays off until both keys are stored, so a deploy needs neither. */
+export const optionalSecretNames = ['LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY'] as const;
 /** Bookkeeping kept beside the secrets: the chosen Cloudflare account, and where and when a project creation started. */
 export const noteNames = ['CLOUDFLARE_ACCOUNT_ID', 'SUPABASE_ORG', 'SUPABASE_CREATE_STARTED'] as const;
-export const storedNames = [...secretNames, ...noteNames] as const;
-export type SecretName = (typeof secretNames)[number];
+export const storedNames = [...secretNames, ...optionalSecretNames, ...noteNames] as const;
+export type SecretName = (typeof secretNames)[number] | (typeof optionalSecretNames)[number];
 export type StoredName = (typeof storedNames)[number];
 export type Stored = Partial<Record<StoredName, string>>;
+
+/** staging.md's steps in its order, as `tg watch` lists them. */
+export const stagingSteps: readonly ProgressStep[] = [
+  { id: 'login-cloudflare', title: 'Cloudflare login', seconds: 45, person: 'approve the Cloudflare login in your browser' },
+  { id: 'login-supabase', title: 'Supabase login', seconds: 60, person: 'approve the Supabase login and type its code in the terminal' },
+  { id: 'supabase', title: 'Supabase project', seconds: 150 },
+  { id: 'configure', title: 'Configuration', seconds: 15 },
+  { id: 'google', title: 'Google OAuth client', seconds: 420, person: 'sign in to Google Cloud when the console asks' },
+  { id: 'llm', title: 'LLM key', seconds: 60, person: 'paste your LLM API key into the terminal' },
+  { id: 'langfuse', title: 'Langfuse tracing (optional)', seconds: 180, person: 'sign in to Langfuse and paste its two keys' },
+  { id: 'deploy', title: 'Deploy', seconds: 240, person: 'approve the deploy in chat' },
+  { id: 'verify-deployed', title: 'Deployed verifier', seconds: 120 },
+  { id: 'acceptance', title: 'Acceptance journey', seconds: 240, person: 'choose your Google account and consent' },
+];
 
 export function parseEnvironment(value: string | undefined): Environment {
   const environment = value ?? 'dev';
@@ -21,8 +38,30 @@ export function parseEnvironment(value: string | undefined): Environment {
 }
 
 export function parseSecretName(value: string | undefined): SecretName {
-  if (!secretNames.includes(value as SecretName)) throw new StepError(`Secret name must be one of ${secretNames.join(', ')}.`);
+  const names: readonly string[] = [...secretNames, ...optionalSecretNames];
+  if (!value || !names.includes(value)) throw new StepError(`Secret name must be one of ${names.join(', ')}.`);
   return value as SecretName;
+}
+
+/** The settings the template's Langfuse e2e reads to run against a deployed environment: its public vars and two stored secrets. */
+export function traceCheckEnv(vars: Record<string, string>, stored: Stored): Record<string, string> {
+  const { SUPABASE_SECRET_KEY, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY } = stored;
+  if (!LANGFUSE_PUBLIC_KEY || !LANGFUSE_SECRET_KEY) throw new StepError('Langfuse keys are not stored. Run `tg staging set LANGFUSE_PUBLIC_KEY` and `tg staging set LANGFUSE_SECRET_KEY`, then `tg staging deploy`.');
+  if (!SUPABASE_SECRET_KEY) throw new StepError('No SUPABASE_SECRET_KEY stored. Run `tg staging supabase` first.');
+  const { APP_URL, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, LANGFUSE_BASE_URL } = vars;
+  if (!APP_URL || !SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY || [APP_URL, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY].some(value => placeholderVar.test(value))) {
+    throw new StepError('wrangler.jsonc still holds placeholders for this environment. Run `tg staging configure` first.');
+  }
+  return { EXTERNAL_APP: '1', APP_URL, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, ...(LANGFUSE_BASE_URL && { LANGFUSE_BASE_URL }) };
+}
+
+/** The Worker secrets a deploy installs: the required two, and the Langfuse pair when both are stored. */
+export function workerSecrets(stored: Stored): Array<[string, string]> {
+  const { SUPABASE_SECRET_KEY, LLM_API_KEY, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY } = stored;
+  if (!SUPABASE_SECRET_KEY || !LLM_API_KEY) throw new StepError('SUPABASE_SECRET_KEY and LLM_API_KEY must be stored.');
+  if (!LANGFUSE_PUBLIC_KEY !== !LANGFUSE_SECRET_KEY) throw new StepError('Store both LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY, or neither.');
+  const langfuse: Array<[string, string]> = LANGFUSE_PUBLIC_KEY && LANGFUSE_SECRET_KEY ? [['LANGFUSE_PUBLIC_KEY', LANGFUSE_PUBLIC_KEY], ['LANGFUSE_SECRET_KEY', LANGFUSE_SECRET_KEY]] : [];
+  return [['SUPABASE_SECRET_KEY', SUPABASE_SECRET_KEY], ['LLM_API_KEY', LLM_API_KEY], ...langfuse];
 }
 
 /** Vite loads `.env.<mode>`, so the name avoids `.env.production`. The template's `.env*` rule ignores it. */
@@ -82,6 +121,9 @@ function setString(block: string, pattern: RegExp, label: string, value: string)
 const setVar = (block: string, key: string, value: string) => setString(block, new RegExp(`("${key}"\\s*:\\s*)"[^"]*"`), `${key} var`, value);
 
 export const placeholderEnvironmentId = /^00000000-0000-4000-8000-0000000000\d\d$/;
+
+/** A wrangler.jsonc var that `configure` has not filled yet. */
+export const placeholderVar = /configure-|\.example\.|(?:dev|production)-project\.supabase\.co/;
 
 export type WranglerSettings = { repo: string; subdomain: string; projectRef: string; publishableKey: string; environmentId: string };
 

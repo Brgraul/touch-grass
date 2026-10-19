@@ -1,6 +1,6 @@
 import { MaxTurnsExceededError, type AgentInputItem, type AgentOutputItem } from '@openai/agents';
 import { z } from 'zod';
-import type { Instant, JsonValue, RunId, UserId } from '@/platform/ids';
+import type { ConversationId, Instant, JsonValue, RunId, UserId } from '@/platform/ids';
 import { blocksFromAgentItems, writeBlocksSchema, type ContentBlock, type Exchange, type RunFailure, type StoredBlock } from './agent-chat.schema';
 
 const unparsedArguments = z.object({ unparsed: z.string() }).strict();
@@ -39,13 +39,13 @@ export const SYSTEM_PROMPT = 'You are a helpful assistant. Use calculate for ari
 
 export type RunPolicy = { maxSteps: number; maxToolCallsPerStep: number };
 
-export type RunInput = { runId: RunId; ownerId: UserId; message: string; history: readonly Exchange[]; policy: RunPolicy; deadline: Instant };
+export type RunInput = { runId: RunId; ownerId: UserId; conversationId: ConversationId; message: string; history: readonly Exchange[]; policy: RunPolicy; deadline: Instant };
 
 export type SavedModelResponse = { output: AgentOutputItem[]; usage: { inputTokens: number; outputTokens: number }; finishReason?: string };
 
 export type ModelOutcome = { kind: 'response'; response: SavedModelResponse } | { kind: 'terminal'; failure: RunFailure };
 
-export type Commit = { kind: 'committed'; now: Instant } | { kind: 'ended' };
+export type Commit = { kind: 'committed'; now: Instant } | { kind: 'completed' } | { kind: 'ended' };
 
 export type ProviderErrorKind = 'retryable' | 'context_length' | 'quota' | 'policy' | 'configuration' | 'unknown';
 

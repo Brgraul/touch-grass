@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Agent, ModelBehaviorError, Runner, Usage, setTraceProcessors, setTracingDisabled, type AgentInputItem, type AgentOutputItem, type Model, type ModelRequest, type ModelResponse, type StreamEvent, type TracingProcessor } from '@openai/agents';
-import { instant, runId, userId } from '@/platform/ids';
+import { conversationId, instant, runId, userId } from '@/platform/ids';
+import { TRACE_EXPORT_TIMEOUT } from '@/platform/telemetry.server';
 import { CHAT_AGENT, CHAT_RUN_CONFIG } from './agent-chat.agent';
 import {
   BLOCK_SCHEMA_VERSION, blocksFromAgentItems, exchangeSchema, sendMessageInput, writeBlocksSchema,
@@ -19,7 +20,7 @@ const id = '00000000-0000-4000-8000-000000000001';
 const now = instant.parse('2026-10-17T12:00:00Z');
 
 const runInput: RunInput = {
-  runId: runId.parse(id), ownerId: userId.parse(id), message: 'Calculate 6 * 7', history: [],
+  runId: runId.parse(id), ownerId: userId.parse(id), conversationId: conversationId.parse(id), message: 'Calculate 6 * 7', history: [],
   policy: { maxSteps: 8, maxToolCallsPerStep: 4 }, deadline: instant.parse('2026-10-17T12:15:00Z'),
 };
 
@@ -45,7 +46,7 @@ class ScriptedModel implements Model {
 
 describe('run policy', () => {
   it('fits the platform and timeout budgets', () => {
-    expect(MODEL_STEP_TIMEOUT).toBeGreaterThan(MODEL_CALL_TIMEOUT);
+    expect(MODEL_STEP_TIMEOUT).toBeGreaterThan(MODEL_CALL_TIMEOUT + TRACE_EXPORT_TIMEOUT);
     expect(DISPATCH_CHECK_DELAY).toBeLessThan(RUN_DURATION);
     expect(2 * MAX_STEPS + 2).toBeLessThanOrEqual(WORKFLOW_STEP_LIMIT);
     expect(MAX_HISTORY_BYTES).toBeLessThan(1_048_576);

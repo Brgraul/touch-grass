@@ -15,7 +15,7 @@ export const compositionRoot = 'src/server.ts';
 
 export const pureRoles = ['schema', 'model', 'tools', 'agent', 'domain'] as const;
 
-export const privateEnvironmentNames = ['SUPABASE_SECRET_KEY', 'LLM_API_KEY'];
+export const privateEnvironmentNames = ['SUPABASE_SECRET_KEY', 'LLM_API_KEY', 'LANGFUSE_SECRET_KEY'];
 
 export const bundleSentinel = 'TOUCH_GRASS_SERVER_SECRET_SENTINEL_4b8ae730';
 
@@ -42,7 +42,7 @@ export const roles = [
   { id: 'layouts', path: 'src/layouts/', owns: 'Application shell and navigation', never: 'Persistence or transport', allows: 'Components; feature UI and queries; browser packages' },
   { id: 'domain', path: 'src/domain/', owns: 'Shared business capabilities used by multiple features', never: 'Feature imports', allows: 'Same domain; SDK definitions and types' },
   { id: 'platform-client', path: 'src/platform/(ids|mutations)\\.ts$', owns: 'Shared identities and client mutation mechanism', never: 'Feature knowledge', allows: 'Other client-safe platform modules; browser packages' },
-  { id: 'platform', path: 'src/platform/', owns: 'Environment, Supabase, auth, model adapter and logging', never: 'Feature knowledge', allows: 'Platform; server and browser packages' },
+  { id: 'platform', path: 'src/platform/', owns: 'Environment, Supabase, auth, model adapter, tracing and logging', never: 'Feature knowledge', allows: 'Platform; server and browser packages' },
   { id: 'bootstrap', path: 'src/(router|client|start)\\.tsx?$', owns: 'Framework bootstrap and one QueryClient per request', never: 'Feature knowledge', allows: 'Generated route tree; browser packages' },
   { id: 'composition', path: '^src/server\\.ts$', owns: 'Runtime wiring and entrypoint exports', never: 'Domain rules', allows: 'Everything it wires' },
 ] as const;
@@ -77,7 +77,7 @@ export const rules = [
   { id: 'ownership-sql', check: 'two-user SQL and E2E proofs', text: 'Verified sessions supply owner IDs. RLS owns reads and each mutation routine owns write authorization.' },
   { id: 'turn-writer', check: 'SQL grants proof', text: 'Only commit_step writes turns. The committer owns exactly one routine and service_role cannot insert turns.' },
   { id: 'deterministic-replay', check: 'Workflow replay and deploy proofs', text: 'Outside steps execution is deterministic. Saved step names never change. Saved model calls are not resent.' },
-  { id: 'timing', check: 'constants test', text: 'Model step timeout exceeds model call timeout. Dispatch delay is below duration. Step and history limits fit Workflows.' },
+  { id: 'timing', check: 'constants test', text: 'Model step timeout exceeds model call timeout plus trace export timeout. Dispatch delay is below duration. Step and history limits fit Workflows.' },
   { id: 'auth-config', check: 'deploy', text: 'Auth settings live in supabase/config.toml and each deploy applies them.' },
   { id: 'review', check: 'review', text: 'No forwarding services or placeholders. Functions delegate ownership. Block changes include data migrations. Secrets never enter source or logs. Production databases are never reset.' },
 ] as const;

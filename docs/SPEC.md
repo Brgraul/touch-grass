@@ -42,6 +42,7 @@ The global skill orchestrates safe local steps, the initial push, local verifica
   4. Check: `pnpm check`. It covers lint, boundaries, type checking, unit, Workers, SQL, and E2E tests, and the client-bundle inspection.
 
   It never provisions anything, so it is safe to repeat. A missing `origin`, a stopped Docker, or an incomplete `pnpm check` reports `not run`, and it exits with code 2. `tg verify` runs it as the `local-verification` step and records a pass only for the clean HEAD it tested.
+- **Progress:** `tg run`, `tg verify` and `tg staging` append step status and command output to `.git/touch-grass-progress/events.jsonl`. They give the agent only summaries, and the full output of each step goes to a log in `logs/` beside it. `tg watch` follows the event log in a terminal the person can see. It shows the three steps, the current step's sub-steps, a remaining-time estimate and the last lines of output. Estimates start as per-step guesses and switch to this machine's own timings once a step has run. Steps where the person must act are named in advance. A session with no terminal for the person falls back to the agent's task list.
 - **Execution boundary:** Everything runs on the local machine: initialization, verification, and staging deploys. The `tg staging` helper creates the Supabase project, fills the environment config, stores secrets in a mode-0600 `.env.deploy.<env>` file, deploys with the template's `pnpm cf:deploy`, installs Worker secrets, and runs `pnpm verify:deployed`.
 
 ## Scope

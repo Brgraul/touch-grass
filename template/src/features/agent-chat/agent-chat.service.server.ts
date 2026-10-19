@@ -1,17 +1,18 @@
 import { z } from 'zod';
 import { NoopTrace, withTrace, type ModelRequest, type ModelResponse } from '@openai/agents';
-import type { Actor, ConversationId, NotFound, Page, PageCursor, RunId } from '@/platform/ids';
+import type { Actor, ConversationId, Instant, NotFound, Page, PageCursor, RunId } from '@/platform/ids';
 import { parseEnv } from '@/platform/env.server';
 import { logError } from '@/platform/logger.server';
 import { classifyProviderError, createModelProvider, isTruncatedModelError, modelResponseMetadata } from '@/platform/model.server';
 import type { RequestClient } from '@/platform/supabase.server';
+import { createTracer, type Trace } from '@/platform/telemetry.server';
 import { createChatRepository } from './agent-chat.repo.server';
-import type { Conversation, ConversationRead, Run, SendReceipt } from './agent-chat.schema';
+import type { ContentBlock, Conversation, ConversationRead, Run, RunFailure, SendReceipt } from './agent-chat.schema';
 import {
   ACTIVE_RUNS_PER_ENVIRONMENT, ACTIVE_RUNS_PER_USER, DISPATCH_CHECK_DELAY,
   END_CHECK_GRACE, MAX_HISTORY_BYTES, MAX_HISTORY_RUNS, MAX_STEPS,
   MAX_TOOL_CALLS_PER_STEP, MESSAGES_PER_USER_PER_HOUR, MODEL_CALL_TIMEOUT,
-  RUN_DURATION, classifyModelError, type ModelOutcome,
+  RUN_DURATION, classifyModelError, type ModelOutcome, type RunInput,
 } from './agent-chat.model';
 import { sendMessageInput } from './agent-chat.schema';
 
@@ -35,6 +36,12 @@ const savedOutput = z.array(z.union([
 const savedUsage = z.object({ inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative() });
 
 const unclassified: ModelOutcome = { kind: 'terminal', failure: { kind: 'execution', code: 'unclassified_provider_response' } };
+
+export type StartedRun = { input: RunInput; now: Instant };
+
+type Attempt = ModelOutcome | { kind: 'retry' };
+
+const traceOf = (input: RunInput): Trace => ({ id: input.runId, name: 'agent-chat', userId: input.ownerId, sessionId: input.conversationId });
 
 export function createChat(source: unknown, workflows: WorkflowRuns, request: RequestClient): Chat {
   const repo = createChatRepository(source);
@@ -96,41 +103,82 @@ function outcomeFromResponse(response: ModelResponse): ModelOutcome {
   return { kind: 'response', response: { output: output.data, usage: usage.data, finishReason: metadata.finishReason } };
 }
 
-// Throwing tells Workflows to retry the model step; every other outcome is saved as the step result.
-function outcomeFromError(error: unknown): ModelOutcome {
+function outcomeFromError(error: unknown): Attempt {
   if (isTruncatedModelError(error)) return { kind: 'terminal', failure: { kind: 'model_output_invalid', reason: 'truncated' } };
   const classification = classifyModelError(classifyProviderError(error));
 
-  if (classification === 'retry') throw new Error('Retryable model request failure');
+  if (classification === 'retry') return { kind: 'retry' };
 
   return { kind: 'terminal', failure: classification };
 }
 
+function attemptResult(attempt: Attempt) {
+  switch (attempt.kind) {
+    case 'response': return { output: attempt.response.output, usage: attempt.response.usage };
+    case 'terminal': return { error: JSON.stringify(attempt.failure) };
+    case 'retry': return { error: 'Retryable model request failure' };
+  }
+}
+
+// Tracing runs inside the Workflow steps, so a replay that reuses a saved step sends nothing again.
 export function createRunner(source: unknown) {
   const settings = parseEnv(source);
   const repo = createChatRepository(source);
   const provider = createModelProvider(settings);
+  const tracer = createTracer(settings);
+
+  async function attemptCall(request: ModelRequest): Promise<Attempt> {
+    const timeout = AbortSignal.timeout(MODEL_CALL_TIMEOUT);
+    const signal = request.signal ? AbortSignal.any([request.signal, timeout]) : timeout;
+    let response;
+
+    try {
+      const model = await provider.getModel();
+      // A step runs outside the SDK run's trace context, and the model always opens a span.
+      response = await withTrace(new NoopTrace(), () => model.getResponse({ ...request, signal, tracing: false }));
+    } catch (error) {
+      return outcomeFromError(error);
+    }
+
+    return outcomeFromResponse(response);
+  }
+
+  function traceRun(run: StartedRun, outcome: { output: unknown } | { error: string }) {
+    return tracer.record(traceOf(run.input), { type: 'agent', name: 'run', startedAt: Date.parse(run.now), endedAt: Date.now(), input: run.input.message, ...outcome });
+  }
 
   return {
     start(id: RunId) {
       return repo.start(id, { maxRuns: MAX_HISTORY_RUNS, maxBytes: MAX_HISTORY_BYTES });
     },
-    commit: repo.commit,
-    fail: repo.fail,
-    async callModel(request: ModelRequest): Promise<ModelOutcome> {
-      const timeout = AbortSignal.timeout(MODEL_CALL_TIMEOUT);
-      const signal = request.signal ? AbortSignal.any([request.signal, timeout]) : timeout;
-      let response;
+    async commit(run: StartedRun, step: number, blocks: ContentBlock[], final: boolean, usage: { inputTokens: number; outputTokens: number }) {
+      const commit = await repo.commit(run.input.runId, step, blocks, final, usage);
 
-      try {
-        const model = await provider.getModel();
-        // A step runs outside the SDK run's trace context, and the model always opens a span.
-        response = await withTrace(new NoopTrace(), () => model.getResponse({ ...request, signal, tracing: false }));
-      } catch (error) {
-        return outcomeFromError(error);
-      }
+      if (commit.kind === 'completed') await traceRun(run, { output: { outcome: 'completed', steps: step } });
 
-      return outcomeFromResponse(response);
+      return commit;
+    },
+    async fail(run: StartedRun, failure: RunFailure) {
+      const result = await repo.fail(run.input.runId, failure);
+
+      // The saved failure can differ from the one passed in, as when the deadline passed first.
+      if (!('kind' in result) && result.state === 'failed') await traceRun(run, { error: JSON.stringify(result.failure) });
+
+      return result;
+    },
+    // Throwing tells Workflows to retry the model step; every other outcome is saved as the step result.
+    async callModel(run: RunInput, step: number, request: ModelRequest): Promise<ModelOutcome> {
+      const startedAt = Date.now();
+      const attempt = await attemptCall(request);
+
+      await tracer.record(traceOf(run), {
+        type: 'generation', name: `model-${step}`, model: settings.LLM_MODEL, startedAt, endedAt: Date.now(),
+        input: { instructions: request.systemInstructions, input: request.input }, ...attemptResult(attempt),
+      });
+
+      if (attempt.kind === 'retry') throw new Error('Retryable model request failure');
+
+      return attempt;
     },
   };
 }

@@ -5,85 +5,107 @@
 <h1 align="center">Touch Grass</h1>
 
 <p align="center">
-  <strong>Bootstrap your project. Ship it to staging. Go outside.</strong>
+  <strong>An opinionated TypeScript scaffold for coding agents, so you can go touch grass.</strong>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Agent-Skill-18181B?style=flat-square" alt="Agent Skill">
-  <img src="https://img.shields.io/badge/TanStack-Start-65A30D?style=flat-square" alt="TanStack Start">
-  <img src="https://img.shields.io/badge/React-149ECA?style=flat-square&amp;logo=react&amp;logoColor=white" alt="React">
+  <img src="https://img.shields.io/badge/Agent_Skill-18181B?style=flat-square" alt="Agent Skill">
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&amp;logo=typescript&amp;logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/TanStack_Start-65A30D?style=flat-square&amp;logo=tanstack&amp;logoColor=white" alt="TanStack Start">
+  <img src="https://img.shields.io/badge/Cloudflare_Workers-F38020?style=flat-square&amp;logo=cloudflare&amp;logoColor=white" alt="Cloudflare Workers">
+  <img src="https://img.shields.io/badge/Supabase-3ECF8E?style=flat-square&amp;logo=supabase&amp;logoColor=white" alt="Supabase">
+  <img src="https://img.shields.io/badge/OpenAI_Agents_SDK-412991?style=flat-square" alt="OpenAI Agents SDK">
+  <img src="https://img.shields.io/badge/Langfuse-0A60B5?style=flat-square" alt="Langfuse">
 </p>
 
 <p align="center">
-  <a href="docs/SPEC.md">MVP specification</a> · <a href="docs/TEMPLATE-SPEC.md">Template specification</a>
+  <a href="#quickstart">Quickstart</a> · <a href="#architecture">Architecture</a> · <a href="skills/touch-grass/references/staging.md">Staging guide</a>
 </p>
 
-One command turns a fresh clone of your empty private repo into a working TanStack Start app, verified on your machine and deployed to staging: hosted Supabase, Google sign-in, a real LLM and a Cloudflare Worker. Then go outside.
+Touch Grass is a template that makes it easy for coding agents to make the right choices. Its TypeScript scaffold catches mistakes early, and pre-installed skills help you get higher-quality code from every prompt. It also provisions an opinionated stack on Cloudflare, Supabase, the OpenAI Agents SDK, and Langfuse. Less plumbing, more fun shipping agents.
 
-Everything runs on your computer. The agent opens the terminal tabs and browser pages. You only approve logins and consent screens.
+Note: For deployment, you'll need to approve the Cloudflare, Supabase and Google sign-ins and paste your LLM key into a hidden prompt. Secrets never make it into the context window.
 
-## Install
+## Quickstart
 
-Install the skill with the [skills CLI](https://github.com/vercel-labs/skills):
+1. **Check the prerequisites.**
+   - **Locally:** a coding agent that loads skills (Codex or Claude Code), Node.js >=22.23 and Git. Local verification also needs Docker and Google Chrome.
+   - **Accounts:** Cloudflare, Supabase and Google Cloud accounts, and an LLM API key. Google sign-in stays in Testing mode for listed test users; publishing it needs your homepage and privacy policy.
+2. **Create an empty private repository** on your Git host and clone it with Git credentials that can push to it.
+3. **Install the skill** from the clone's root with the [skills CLI](https://github.com/vercel-labs/skills):
 
-```sh
-npx skills add Brgraul/touch-grass
+   ```sh
+   npx skills add Brgraul/touch-grass
+   ```
+
+4. **Invoke the skill** from the clone's root:
+
+   ```text
+   $touch-grass
+   ```
+
+## A codebase your coding agents will love
+
+Inspired by the principles behind Dune, the internal agent-first app framework that Lauren (@poteto) [walked through](https://www.youtube.com/watch?v=MN9dGgmLyso&t=1707s) in her breakdown of the engineering workflow at xAI.
+
+- **Verifiable.** `pnpm check` runs the type checker, the lint rules, the import boundaries and every test suite. Correctness is enforced deterministically.
+- **Senior-engineer skills.** The bundled skills make agents work like a senior engineer: plan first, test as they go, and prove the change works before reporting success.
+- **Agent-friendly architecture.** The app is split by feature, and a file's name gives it one job. Lint rules enforce boundaries, so code in the wrong place fails the build. Four principles motivate the structure:
+  - **Context locality.** A change to one feature stays in that feature's folder, so the agent doesn't wander around.
+  - **Separation of concerns.** Screens, data fetching, business logic and database access live in separate files.
+  - **State consistency.** Every piece of application state has a single valid writer to prevent conflicting updates.
+  - **Runtime isolation.** Separating client, server, and worker code helps maintain performance and reduces unnecessary coupling.
+
+## Architecture
+
+The app is organized by feature. Each file's suffix gives it a role, and each role may import only what the policy allows. This is a simplified view of one feature:
+
+```mermaid
+flowchart LR
+  subgraph browser["Browser"]
+    route["routes/"] --> ui["ui/"] --> queries["*.queries.ts"]
+  end
+
+  subgraph server["Cloudflare Worker"]
+    functions["*.functions.ts<br/>parse input, resolve actor"] --> service["*.service.server.ts<br/>use cases"]
+    service --> repo["*.repo.server.ts<br/>database routines"]
+    workflow["*.workflow.server.ts<br/>durable steps"] --> service
+  end
+
+  subgraph pure["Pure, no I/O"]
+    schema["*.schema.ts"]
+    model["*.model.ts"]
+    agent["*.agent.ts"] --> tools["*.tools.ts"]
+  end
+
+  queries -- server function --> functions
+  service -- starts run --> workflow
+  workflow --> agent
+  repo --> db[("Supabase Postgres<br/>with RLS")]
+  service --> llm(["LLM provider"])
 ```
 
-The `skills/touch-grass/` folder is self-contained. It ships the app template as one file, `skills/touch-grass/assets/template.bundle`, so no installer can drop or alter template files.
+## Don't ask, enforce
 
-To work on the skill itself, clone this repository and link it instead:
+Rules in a prompt are suggestions. Rules that fail the build are not. The generated app enforces its architecture with:
 
-```sh
-git clone https://github.com/Brgraul/touch-grass.git
-cd touch-grass
-ln -s "$PWD/skills/touch-grass" ~/.claude/skills/touch-grass
-```
+- **Import boundaries.** dependency-cruiser checks every import against the role allowlist, and fails on cross-feature imports and feature cycles.
+- **Policy lint rules.** Custom rules keep schemas, models, tools and agents free of I/O, clocks and randomness. They keep fetching out of UI components, environment reads in one module, and brand casts in parsers.
+- **Anti-slop lint for TypeScript.** 18 Oxlint rules reject the patterns agents tend to produce: chained type assertions, `unknown` parameters and returns, widen-then-assert, module mocking, object parameters and more.
+- **Client bundle inspection.** The production build fails if a server module, server package, private environment name or planted secret reaches a browser chunk.
+- **Repository checks.** Exact version pins, a banned-package list, an append-only migration ledger, a generated `ARCHITECTURE.md` that must match the policy, and hash-verified vendored skills.
 
-For Codex, link into `${CODEX_HOME:-~/.codex}/skills` instead. A `git pull` then updates the skill. Restart or refresh your agent's skill discovery after linking.
+`pnpm check` runs all of it, plus type checking and every test suite, against a freshly reset local database.
 
-Run the skill's regression checks without provisioning live resources, and type-check its scripts once `template/` has its dependencies installed:
+## Agent skills
 
-```sh
-npm test
-npm run typecheck
-```
+The template vendors agent skills pinned to upstream commits. They keep engineering judgment in front of the code instead of replacing it:
 
-The editable template lives in `template/`. After changing it, stage the changes and rebuild the bundle, then commit both together. A test fails when the bundle is stale.
-
-```sh
-git add template
-npm run bundle
-```
-
-## One command
-
-Create an empty private repository on your Git host, clone it, and invoke the skill from the clone's root:
-
-```text
-$touch-grass
-```
-
-The agent takes it to a working staging environment in three stages:
-
-1. **Bootstrap.** Checks dependencies, commits the bundled starter and pushes it to `origin`.
-2. **Verify.** Runs the repository's `pnpm verify` on your machine: repository access, frozen install, build and the full test suite.
-3. **Deploy.** Follows the [staging guide](skills/touch-grass/references/staging.md) with the `tg staging` helper.
-
-If a run stops, invoke `$touch-grass` again in the generated repository. It picks up where it stopped.
-
-## Staging
-
-Once `pnpm verify` passes, the agent deploys the app's `dev` environment from your machine:
-
-1. Opens terminal tabs for the Cloudflare and Supabase logins. You approve them.
-2. Creates the Supabase project and fills in the app's configuration.
-3. Drives the Google Cloud console to create the OAuth client. You sign in, accept Google's policy and add yourself as a test user.
-4. Stores your LLM key from a hidden prompt, then deploys migrations, Auth config and the Worker from your machine.
-5. Runs the deployed verifier, then walks the real journey with you: Google sign-in, a model reply that uses a tool, a reload, and sign-out.
-
-Secrets stay in a private, gitignored `.env.deploy.<env>` file and in Worker secrets. They never appear in chat.
+- **[pstack](https://github.com/michael-denyer/pstack-claude)**, poteto's skill stack. `poteto-mode` routes work to playbooks for features, bugs, refactors and reviews, and requires proof before an agent reports success. Includes `architect`, `tdd`, `interrogate`, `correct` and `bro`.
+- **[`grill-me`](https://github.com/mattpocock/skills)** from Matt Pocock: a relentless interview that sharpens a plan before any code exists.
+- **[`show-me`](https://github.com/humanlayer/skills)** from HumanLayer: explains the current topic with diagrams and focused visual sketches.
+- **[`vercel-react-best-practices`](https://github.com/vercel-labs/agent-skills)** and a provider-neutral **`evals`** skill for measuring LLM features.
+- **evals**: A vendor-neutral skill for generating and improving best-practices evals.
 
 ## Batteries included
 
@@ -96,9 +118,3 @@ Secrets stay in a private, gitignored `.env.deploy.<env>` file and in Worker sec
 | **Tests, CI, and `AGENTS.md`** | A starter built for coding agents. |
 | **Pinned agent skills** | Systematic debugging, verification before completion, and React best practices. |
 | **Resumable setup** | Rerun `$touch-grass` in the generated repo to verify it again and finish staging, without bootstrapping it again. |
-
-## What you need
-
-- **An empty private repository** you created, cloned locally, and Git credentials that can push to it.
-- **Locally:** a coding agent that loads skills (Codex or Claude Code), Node.js >=22.23 and Git. Local verification also needs Docker and Google Chrome.
-- **Accounts:** Cloudflare, Supabase and Google Cloud accounts, and an LLM API key with billing. The Free plans of Cloudflare and Supabase work. Google sign-in stays in Testing mode for listed test users; publishing it needs your homepage and privacy policy.

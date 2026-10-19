@@ -109,6 +109,7 @@ Then set the runtime secrets once per Worker. They persist across deploys.
 - [ ] Run `pnpm exec wrangler secret put SUPABASE_SECRET_KEY --name touch-grass-dev` and enter the dev project's secret key. You can use the dashboard instead.
 - [ ] Run `pnpm exec wrangler secret put LLM_API_KEY --name touch-grass-dev` and enter the dev LLM key.
 - [ ] Repeat both commands with `--name touch-grass-production` and the production values.
+- [ ] Optional. To trace agent runs, create a Langfuse project per environment and set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` on each Worker the same way. Outside Langfuse Cloud EU, also set `LANGFUSE_BASE_URL` in the environment's `vars`.
 
 ## 8. Deploy, verify, and release
 

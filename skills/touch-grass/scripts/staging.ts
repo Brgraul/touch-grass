@@ -7,10 +7,11 @@ import { basename, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
+import { emit, pipe, type Status, statuses } from './lib/events.ts';
 import { run, StepError } from './lib/exec.ts';
 import {
   configureSupabase, configureWrangler, deployRefs, type Environment, parseEnvironment, parseSecretName, placeholderEnvironmentId,
-  type PoolerEntry, readStored, redact, secretNames, secretsPath, sessionPoolerUrl, type Stored, storedNames, updateStored,
+  placeholderVar, type PoolerEntry, readStored, redact, secretNames, secretsPath, sessionPoolerUrl, stagingSteps, type Stored, storedNames, traceCheckEnv, updateStored, workerSecrets,
 } from './lib/staging.ts';
 
 export const usage = `Usage: tg staging <command> [--env dev|production]
@@ -25,6 +26,8 @@ export const usage = `Usage: tg staging <command> [--env dev|production]
   llm-check                       Check LLM_API_KEY against the environment's LLM_BASE_URL and LLM_MODEL.
   deploy                          Build, push migrations and Auth config, deploy the Worker, install Worker secrets.
   verify                          Run \`pnpm verify:deployed\` for the environment.
+  trace-check                     Send one chat message to the deployed app and check that its trace lands in Langfuse.
+  mark <step> <status>            Record progress on a step you drive in the browser, for \`tg watch\`.
   status                          Show stored names and remaining placeholders. Prints no values.
 Run from the generated repository root. Each write merges into the current file.
 Secrets live in .env.deploy.<env> with mode 0600.`;
@@ -104,23 +107,11 @@ function save(context: Context, update: Stored): void {
   context.stored = updateStored(context.path, update);
 }
 
-/** Streams a command's output with every given value replaced. */
-export function stream(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, hidden: readonly string[]): Promise<number> {
-  return new Promise(resolve => {
-    const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
-    for (const [source, sink] of [[child.stdout, process.stdout], [child.stderr, process.stderr]] as const) {
-      let buffer = '';
-      source.setEncoding('utf8');
-      source.on('data', (chunk: string) => {
-        const lines = (buffer + chunk).split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) sink.write(redact(line, hidden) + '\n');
-      });
-      source.on('end', () => { if (buffer) sink.write(redact(buffer, hidden) + '\n'); });
-    }
-    child.on('error', () => resolve(127));
-    child.on('close', code => resolve(code ?? 1));
-  });
+/** Runs a step's command with its output in the log, printing only its last lines: always when `show` is set, otherwise on failure. */
+async function piped(context: Context, step: string, command: string, args: string[], env: NodeJS.ProcessEnv, hidden: readonly (string | undefined)[], show = false): Promise<void> {
+  const { code, tail, log } = await pipe(context.root, step, command, args, { env, hidden });
+  if (show || code !== 0) process.stderr.write(tail.slice(-15).join('\n') + '\n');
+  if (code !== 0) throw new StepError(`${[basename(command), ...args.slice(-1)].join(' ')} exited with ${code}.${log ? ` Its full output is in ${log}.` : ''}`);
 }
 
 async function readHidden(name: string): Promise<string> {
@@ -255,9 +246,11 @@ async function llmCheck(context: Context): Promise<void> {
 
 type Binding = { type?: string; name?: string; text?: string };
 
-async function deploy(context: Context): Promise<void> {
+/** Resolves to the deployed APP_URL, which `tg watch` shows when setup is complete. */
+async function deploy(context: Context): Promise<string | undefined> {
   const missing = secretNames.filter(name => !context.stored[name]);
   if (missing.length) throw new StepError(`Missing in ${basename(context.path)}: ${missing.join(', ')}.`);
+  const secrets = workerSecrets(context.stored);
   const { name: worker, vars } = await readWranglerEnv(context.root, context.environment);
   const refs = deployRefs(context.stored, vars.SUPABASE_URL);
   if (!refs.config || refs.stored !== refs.config || refs.database !== refs.config) throw new StepError(`Project refs disagree: stored ${refs.stored}, wrangler.jsonc ${refs.config}, database URL ${refs.database}. Rerun \`tg staging supabase\` and \`configure\`.`);
@@ -271,41 +264,52 @@ async function deploy(context: Context): Promise<void> {
 
   const token = supabaseToken();
   const { SUPABASE_DB_URL, SUPABASE_SECRET_KEY, SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID, SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET, LLM_API_KEY, SUPABASE_DB_PASSWORD } = context.stored;
-  const hidden = [SUPABASE_DB_PASSWORD, SUPABASE_DB_URL, SUPABASE_SECRET_KEY, SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET, LLM_API_KEY, token].filter((v): v is string => !!v);
+  const hidden = [SUPABASE_DB_PASSWORD, SUPABASE_DB_URL, SUPABASE_SECRET_KEY, SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET, LLM_API_KEY, context.stored.LANGFUSE_SECRET_KEY, token].filter((v): v is string => !!v);
   const cloudflare = { CLOUDFLARE_ENV: context.environment, CLOUDFLARE_ACCOUNT_ID: account };
   const [command, prefix] = pnpm();
-  if (await stream(command, [...prefix, 'build'], context.root, { ...process.env, ...cloudflare }, hidden) !== 0) throw new StepError('pnpm build failed.');
+  await piped(context, 'deploy', command, [...prefix, 'build'], { ...process.env, ...cloudflare }, hidden);
   const buildSecrets = { SUPABASE_ACCESS_TOKEN: token, SUPABASE_DB_URL, SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID, SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET };
-  if (await stream(command, [...prefix, 'cf:deploy'], context.root, { ...process.env, ...cloudflare, ...buildSecrets }, hidden) !== 0) throw new StepError('pnpm cf:deploy failed.');
-  for (const [name, value] of [['SUPABASE_SECRET_KEY', SUPABASE_SECRET_KEY], ['LLM_API_KEY', LLM_API_KEY]] as const) {
+  await piped(context, 'deploy', command, [...prefix, 'cf:deploy'], { ...process.env, ...cloudflare, ...buildSecrets }, hidden, true);
+  for (const [name, value] of secrets) {
     const result = run(bin(context.root, 'wrangler'), ['secret', 'put', name, '--env', context.environment], { cwd: context.root, input: value, env: cloudflare });
     if (result.status !== 0) throw new StepError(`wrangler secret put ${name} exited with ${result.status}. ${redact(result.stderr, hidden).trim().split('\n').slice(-2).join(' | ')}`);
     process.stdout.write(`Worker secret ${name} installed\n`);
   }
+  return vars.APP_URL;
 }
 
 async function verify(context: Context): Promise<void> {
   const key = context.stored.SUPABASE_SECRET_KEY;
   if (!key) throw new StepError('No SUPABASE_SECRET_KEY stored.');
   const [command, prefix] = pnpm();
-  if (await stream(command, [...prefix, 'verify:deployed', '--env', context.environment], context.root, { ...process.env, SUPABASE_SECRET_KEY: key }, [key]) !== 0) throw new StepError('pnpm verify:deployed failed.');
+  await piped(context, 'verify-deployed', command, [...prefix, 'verify:deployed', '--env', context.environment], { ...process.env, SUPABASE_SECRET_KEY: key }, [key], true);
+}
+
+// The Worker reads LANGFUSE_BASE_URL only from wrangler.jsonc, so the test must not take one from the shell.
+async function traceCheck(context: Context): Promise<void> {
+  const { vars } = await readWranglerEnv(context.root, context.environment);
+  const settings = traceCheckEnv(vars, context.stored);
+  const { LANGFUSE_BASE_URL: _shell, ...inherited } = process.env;
+  const [command, prefix] = pnpm();
+  await piped(context, 'acceptance', command, [...prefix, 'exec', 'playwright', 'test', 'agent-chat.langfuse'], { ...inherited, ...settings }, [settings.SUPABASE_SECRET_KEY, settings.LANGFUSE_SECRET_KEY], true);
 }
 
 async function status(context: Context): Promise<void> {
   const mode = existsSync(context.path) ? (statSync(context.path).mode & 0o777).toString(8) : 'absent';
   process.stdout.write(`${basename(context.path)} (${mode}): ${storedNames.map(n => `${n} ${context.stored[n] ? 'set' : 'missing'}`).join(', ')}\n`);
   const { name, vars } = await readWranglerEnv(context.root, context.environment);
-  const stale = Object.entries(vars).filter(([, v]) => /configure-|\.example\.|(?:dev|production)-project\.supabase\.co/.test(v) || placeholderEnvironmentId.test(v)).map(([k]) => k);
+  const stale = Object.entries(vars).filter(([, v]) => placeholderVar.test(v) || placeholderEnvironmentId.test(v)).map(([k]) => k);
   process.stdout.write(`wrangler.jsonc ${context.environment}: Worker ${name}, ${stale.length ? `placeholders in ${stale.join(', ')}` : `APP_URL ${vars.APP_URL}`}\n`);
 }
 
 function login(root: string, vendor: 'supabase' | 'cloudflare'): void {
   if (!process.stdin.isTTY) throw new StepError('Logins need an interactive terminal the person can see. Run this command in a visible terminal tab.');
-  if (vendor === 'cloudflare') { spawnSync(bin(root, 'wrangler'), ['login'], { cwd: root, stdio: 'inherit' }); return; }
+  const done = (result: { status: number | null }) => { if (result.status !== 0) throw new StepError(`${vendor} login exited with ${result.status ?? 'a signal'}. Rerun it.`); };
+  if (vendor === 'cloudflare') { done(spawnSync(bin(root, 'wrangler'), ['login'], { cwd: root, stdio: 'inherit' })); return; }
   const binary = bin(root, 'supabase');
   // The CLI waits for Enter before it opens the browser. expect presses it, then hands the prompt for the verification code back to the person.
-  if (run('expect', ['-v']).status === 0) spawnSync('expect', ['-c', `set timeout 60\nspawn {${binary}} login\nexpect "Press Enter"\nsleep 1\nsend "\\r"\nset timeout 900\ninteract`], { cwd: root, stdio: 'inherit' });
-  else spawnSync(binary, ['login'], { cwd: root, stdio: 'inherit' });
+  if (run('expect', ['-v']).status === 0) done(spawnSync('expect', ['-c', `set timeout 60\nspawn {${binary}} login\nexpect "Press Enter"\nsleep 1\nsend "\\r"\nset timeout 900\ninteract`], { cwd: root, stdio: 'inherit' }));
+  else done(spawnSync(binary, ['login'], { cwd: root, stdio: 'inherit' }));
 }
 
 export async function staging(argv: string[]): Promise<number> {
@@ -324,7 +328,36 @@ export async function staging(argv: string[]): Promise<number> {
   const path = secretsPath(root, environment);
   const context: Context = { root, repo: basename(root).toLowerCase(), environment, path, stored: readStored(path) };
 
+  const step = progressStep(command, argument);
+  if (step) emit(root, { step, status: waits(command) ? 'waiting' : 'running', detail: waits(command) ? stagingSteps.find(s => s.id === step)?.person : undefined });
+  let detail: string | undefined;
+  try { detail = await dispatch(context, command, argument, values, positionals[2]); }
+  catch (error) { if (step) emit(root, { step, status: 'failed', detail: error instanceof StepError ? error.message : undefined }); throw error; }
+  if (step) emit(root, { step, status: 'done', detail });
+  return 0;
+}
+
+const commandSteps: Partial<Record<string, string>> = { 'login-cloudflare': 'login-cloudflare', 'login-supabase': 'login-supabase', supabase: 'supabase', configure: 'configure', google: 'google', 'llm-check': 'llm', deploy: 'deploy', verify: 'verify-deployed' };
+
+/** The `tg watch` step a command advances. */
+function progressStep(command: string, argument: string | undefined): string | undefined {
+  if (command !== 'set') return commandSteps[command];
+  return argument === 'LLM_API_KEY' ? 'llm' : argument?.startsWith('LANGFUSE_') ? 'langfuse' : undefined;
+}
+
+/** Logins and `set` wait on the person for their whole run. */
+const waits = (command: string) => command === 'set' || command.startsWith('login-');
+
+function mark(root: string, step: string | undefined, status: string | undefined): void {
+  if (!stagingSteps.some(s => s.id === step)) throw new StepError(`Step must be one of ${stagingSteps.map(s => s.id).join(', ')}.`);
+  if (!statuses.includes(status as Status)) throw new StepError(`Status must be one of ${statuses.join(', ')}.`);
+  emit(root, { step: step!, status: status as Status });
+}
+
+async function dispatch(context: Context, command: string, argument: string | undefined, values: { region?: string; org?: string; account?: string; 'confirm-cost'?: boolean }, extra: string | undefined): Promise<string | undefined> {
+  const { root } = context;
   switch (command) {
+    case 'mark': mark(root, argument, extra); break;
     case 'login-supabase': login(root, 'supabase'); break;
     case 'login-cloudflare': login(root, 'cloudflare'); break;
     case 'supabase': await supabase(context, values); break;
@@ -332,10 +365,10 @@ export async function staging(argv: string[]): Promise<number> {
     case 'google': google(context, argument); break;
     case 'set': { const name = parseSecretName(argument); const value = await readHidden(name); if (!value) throw new StepError('No value read.'); save(context, { [name]: value }); process.stdout.write(`stored ${name}\n`); break; }
     case 'llm-check': await llmCheck(context); break;
-    case 'deploy': await deploy(context); break;
+    case 'deploy': return deploy(context);
     case 'verify': await verify(context); break;
+    case 'trace-check': await traceCheck(context); break;
     case 'status': await status(context); break;
     default: throw new StepError(usage);
   }
-  return 0;
 }

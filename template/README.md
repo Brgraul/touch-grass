@@ -138,6 +138,8 @@ pnpm exec wrangler secret put LLM_API_KEY --name touch-grass-dev
 
 Repeat with `--name touch-grass-production`. You can also set them in the dashboard. They persist across deploys, and the deploy never uploads them.
 
+To trace agent runs in Langfuse, also set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` the same way. See [Trace agent runs](#trace-agent-runs).
+
 If the first build starts before you save the build secrets, or while `wrangler.jsonc` still holds placeholders, it stops at `pnpm cf:deploy` before it changes anything. Save the settings, merge your edits to `main`, and retry the build from the dashboard.
 
 ## Settings and secrets
@@ -149,6 +151,8 @@ Non-secret settings live in `wrangler.jsonc`. Secrets live only in the places be
 | Wrangler `vars` | `ENVIRONMENT_ID`, a UUID you choose once per environment | `vars` in `wrangler.jsonc` | The Worker |
 | Wrangler `vars` | `APP_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | `vars` in `wrangler.jsonc` | The Worker, `cf:deploy`, and `verify:deployed` |
 | Worker secrets | `SUPABASE_SECRET_KEY`, `LLM_API_KEY` | `wrangler secret put <NAME> --name touch-grass-<env>`, or the dashboard. Set once per Worker. | The Worker |
+| Optional Worker secrets | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`. Set both or neither. | The same as the Worker secrets | Run tracing |
+| Optional Wrangler `vars` | `LANGFUSE_BASE_URL`, default `https://cloud.langfuse.com` | `vars` in `wrangler.jsonc` | Run tracing |
 | Workers Builds build secrets | `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_URL`, `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID`, `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET` | The Worker's build settings in the dashboard | `pnpm cf:deploy` |
 | Workers Builds build variables | `CLOUDFLARE_ENV`, `PNPM_VERSION` | The Worker's build settings in the dashboard | `pnpm build` and `pnpm cf:deploy` |
 | Local files | `SUPABASE_SECRET_KEY`, `LLM_API_KEY` in `.dev.vars`. The two Google values in `supabase/.env`. | Your machine, never committed | The local app and the local Supabase stack |
@@ -157,6 +161,20 @@ Non-secret settings live in `wrangler.jsonc`. Secrets live only in the places be
 `SUPABASE_DB_URL` is the project's session-mode pooler string described in step 2. The project reference is not a secret. `cf:deploy` derives it from `SUPABASE_URL`.
 
 Workers Builds exposes build secrets to every build command, including `pnpm install` and `pnpm build`. Keep dependencies pinned and reviewed.
+
+## Trace agent runs
+
+Each agent run can send one trace to [Langfuse](https://langfuse.com). Tracing is off until both `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set. To trace local runs, add both keys to `.dev.vars`.
+
+- The trace ID is the run ID with its hyphens removed. Search Langfuse for a run ID to find its trace.
+- The session ID is the conversation ID, so Langfuse groups the runs of one conversation into one session.
+- Each provider request is a generation named after its Workflow step, such as `model-2`. It records the prompt, the output, the token usage and the model. A failed attempt that Workflows retries is an error generation.
+- A `run` span closes a completed or failed run. It holds the user message and either the outcome or the saved failure. A cancelled run and a run that the sweep fails have no `run` span.
+- The spans are sent from inside the Workflow steps, so a replay sends no saved step again. A failed export is logged as `trace_export_failed` and never fails the run.
+- Traces hold user messages and model output. Treat the Langfuse project as user data.
+- `agent-chat.langfuse.e2e.spec.ts` sends one chat message and polls Langfuse's v2 observations API until the trace arrives complete. It runs when both keys are in the test's environment and skips otherwise. The app under test must hold the same keys.
+
+Langfuse Cloud in the US uses `https://us.cloud.langfuse.com`. Set `LANGFUSE_BASE_URL` in the environment's `vars` for that region or for a self-hosted Langfuse.
 
 ## Deploy and verify
 

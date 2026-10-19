@@ -22,7 +22,7 @@ Generated from `tools/boundary-enforcement/policy.ts`. Run `pnpm gen:architectur
 | layouts | Application shell and navigation | Persistence or transport |
 | domain | Shared business capabilities used by multiple features | Feature imports |
 | platform-client | Shared identities and client mutation mechanism | Feature knowledge |
-| platform | Environment, Supabase, auth, model adapter and logging | Feature knowledge |
+| platform | Environment, Supabase, auth, model adapter, tracing and logging | Feature knowledge |
 | bootstrap | Framework bootstrap and one QueryClient per request | Feature knowledge |
 | composition | Runtime wiring and entrypoint exports | Domain rules |
 
@@ -87,6 +87,6 @@ Emitted browser chunks may also contain the dependency closure of the browser pa
 | ownership-sql | two-user SQL and E2E proofs | Verified sessions supply owner IDs. RLS owns reads and each mutation routine owns write authorization. |
 | turn-writer | SQL grants proof | Only commit_step writes turns. The committer owns exactly one routine and service_role cannot insert turns. |
 | deterministic-replay | Workflow replay and deploy proofs | Outside steps execution is deterministic. Saved step names never change. Saved model calls are not resent. |
-| timing | constants test | Model step timeout exceeds model call timeout. Dispatch delay is below duration. Step and history limits fit Workflows. |
+| timing | constants test | Model step timeout exceeds model call timeout plus trace export timeout. Dispatch delay is below duration. Step and history limits fit Workflows. |
 | auth-config | deploy | Auth settings live in supabase/config.toml and each deploy applies them. |
 | review | review | No forwarding services or placeholders. Functions delegate ownership. Block changes include data migrations. Secrets never enter source or logs. Production databases are never reset. |

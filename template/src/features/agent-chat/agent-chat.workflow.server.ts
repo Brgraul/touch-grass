@@ -3,11 +3,11 @@ import { Runner, Usage, type AgentInputItem, type Model, type ModelRequest, type
 import { z } from 'zod';
 import { runId, type Instant } from '@/platform/ids';
 import { CHAT_AGENT, CHAT_RUN_CONFIG } from './agent-chat.agent';
-import { createRunner, type ChatRunner, type WorkflowRuns } from './agent-chat.service.server';
+import { createRunner, type ChatRunner, type StartedRun, type WorkflowRuns } from './agent-chat.service.server';
 import {
   MODEL_CALL_RETRIES, MODEL_STEP_TIMEOUT, RunEnded, RunFailed,
   checkBeforeCall, checkResponse, failureFromRunError, toAgentInput, turnBlocks,
-  type Commit, type RunInput, type SavedModelResponse,
+  type Commit, type SavedModelResponse,
 } from './agent-chat.model';
 
 const payloadSchema = z.object({ runId }).strict();
@@ -51,24 +51,26 @@ export function workflowRuns(binding: Pick<Workflow, 'create' | 'get'>): Workflo
 export class DurableModel implements Model {
   private calls = 0;
   private previous: SavedModelResponse | undefined;
+  private now: Instant;
 
   constructor(
     private readonly steps: WorkflowStep,
     private readonly runner: ChatRunner,
-    private readonly input: RunInput,
-    private now: Instant,
-  ) {}
+    private readonly run: StartedRun,
+  ) {
+    this.now = run.now;
+  }
 
   async getResponse(request: ModelRequest): Promise<ModelResponse> {
     if (this.previous) {
       const commit = await this.commit(this.previous, false, typeof request.input === 'string' ? [] : request.input);
 
-      if (commit.kind === 'ended') throw new RunEnded();
+      if (commit.kind !== 'committed') throw new RunEnded();
       this.now = commit.now;
     }
 
     this.calls += 1;
-    const limit = checkBeforeCall(this.input, this.calls, this.now);
+    const limit = checkBeforeCall(this.run.input, this.calls, this.now);
 
     if (limit) throw new RunFailed(limit);
     const response = await this.callModel(request);
@@ -90,14 +92,15 @@ export class DurableModel implements Model {
     let outcome;
 
     try {
-      outcome = await this.steps.do(`model-${this.calls}`, MODEL_STEP_CONFIG, () => this.runner.callModel(request));
+      const step = this.calls;
+      outcome = await this.steps.do(`model-${step}`, MODEL_STEP_CONFIG, () => this.runner.callModel(this.run.input, step, request));
     } catch (error) {
       if (isEngineControl(error)) throw error;
       throw new RunFailed({ kind: 'limit', limit: 'model_retries' });
     }
 
     if (outcome.kind === 'terminal') throw new RunFailed(outcome.failure);
-    const failure = checkResponse(outcome.response, this.input.policy);
+    const failure = checkResponse(outcome.response, this.run.input.policy);
 
     if (failure) throw new RunFailed(failure);
 
@@ -108,7 +111,7 @@ export class DurableModel implements Model {
     const step = this.calls;
     const blocks = turnBlocks(response, nextInput);
 
-    return this.steps.do(`commit-${step}`, () => this.runner.commit(this.input.runId, step, blocks, final, response.usage));
+    return this.steps.do(`commit-${step}`, () => this.runner.commit(this.run, step, blocks, final, response.usage));
   }
 }
 
@@ -119,7 +122,7 @@ export class AgentChatWorkflow extends WorkflowEntrypoint<Env, unknown> {
     const start = await step.do('start', () => runner.start(id));
 
     if (start.kind === 'ended') return;
-    const model = new DurableModel(step, runner, start.input, start.now);
+    const model = new DurableModel(step, runner, start);
 
     try {
       await new Runner({ ...CHAT_RUN_CONFIG, model })
@@ -129,7 +132,7 @@ export class AgentChatWorkflow extends WorkflowEntrypoint<Env, unknown> {
       if (isEngineControl(error)) throw error;
       const failure = failureFromRunError(error);
 
-      if (failure) await step.do('fail', async () => { await runner.fail(id, failure); });
+      if (failure) await step.do('fail', async () => { await runner.fail(start, failure); });
     }
   }
 }

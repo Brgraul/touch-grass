@@ -1,6 +1,6 @@
 import { Pool } from 'pg'
 import { z } from 'zod'
-import { HARNESS_ORIGIN, failpointSchema, type Failpoint } from './integration-harness-client.ts'
+import { HARNESS_ORIGIN, LANGFUSE_ORIGIN, failpointSchema, type Failpoint } from './integration-harness-client.ts'
 
 const sqlSchema = z.object({ statement: z.string().min(1), parameters: z.array(z.union([z.string(), z.number()])).default([]) }).strict()
 
@@ -15,6 +15,7 @@ export function createIntegrationHarness(databaseUrl: string) {
   const pool = new Pool({ connectionString: databaseUrl, max: 2, idleTimeoutMillis: 1_000, allowExitOnIdle: true })
   const failpoints: Failpoint[] = []
   const origins = new Set<string>()
+  const traces: { authorization: string; body: unknown }[] = []
 
   async function control(request: Request, path: string): Promise<Response> {
     if (path === '/sql') {
@@ -35,6 +36,8 @@ export function createIntegrationHarness(databaseUrl: string) {
 
     if (path === '/origins') return Response.json([...origins])
 
+    if (path === '/traces') return Response.json(traces)
+
     return new Response('Unknown harness route', { status: 404 })
   }
 
@@ -54,6 +57,13 @@ export function createIntegrationHarness(databaseUrl: string) {
     const url = new URL(request.url)
 
     if (url.origin === HARNESS_ORIGIN) return control(request, url.pathname)
+
+    if (url.origin === LANGFUSE_ORIGIN) {
+      traces.push({ authorization: request.headers.get('authorization') ?? '', body: await request.json() })
+
+      return Response.json({})
+    }
+
     origins.add(url.origin)
     const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.text()
     const failpoint = body === undefined ? undefined : takeFailpoint(url.pathname, body)

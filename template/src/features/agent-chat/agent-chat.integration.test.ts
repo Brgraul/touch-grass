@@ -4,7 +4,7 @@ import { env } from 'cloudflare:workers';
 import { introspectWorkflowInstance } from 'cloudflare:test';
 import { z } from 'zod';
 import { createTestUser, deleteTestUser, signInTestUser } from '../../../tests/fixtures/test-users';
-import { armFailpoint, outboundOrigins, pendingFailpoints, sql } from '../../../tests/fixtures/integration-harness-client';
+import { armFailpoint, exportedSpans, outboundOrigins, pendingFailpoints, sql } from '../../../tests/fixtures/integration-harness-client';
 import { environmentId, requestKey, userId } from '@/platform/ids';
 import { parseEnv } from '@/platform/env.server';
 import { createChatRepository } from './agent-chat.repo.server';
@@ -440,9 +440,69 @@ describe('a run on the real Workflow binding, database and provider double', () 
     expect((await read(ctx, run)).run).toMatchObject({ state: 'failed', failure: { kind: 'limit', limit: 'duration' } });
   });
 
-  it('sends nothing beyond the loopback stack, so no trace export leaves the Worker', async () => {
+  it('sends nothing beyond the loopback stack and the Langfuse double, so no SDK trace export leaves the Worker', async () => {
     const origins = await outboundOrigins();
     expect(origins.length).toBeGreaterThan(0);
     expect(origins.filter((origin) => new URL(origin).hostname !== '127.0.0.1')).toEqual([]);
+  });
+});
+
+describe('the Langfuse trace of a run', () => {
+  const traceIdOf = (run: Run) => run.id.replaceAll('-', '');
+
+  it('holds one generation per provider call and one run span, keyed by the run ID, and a replay adds no generation', async () => {
+    const ctx = await context();
+    const marker = crypto.randomUUID();
+    const run = await submit(ctx, `calculate 6 * 7 ${marker}`);
+    const instance = await observe(run.id);
+    await runs.start(run.id);
+    await instance.waitForStatus('complete');
+
+    const spans = await exportedSpans(traceIdOf(run));
+    expect(spans.map((span) => [span.name, span.attributes['langfuse.observation.type']])).toEqual([
+      ['model-1', 'generation'], ['model-2', 'generation'], ['run', 'agent'],
+    ]);
+    expect(new Set(spans.map((span) => span.attributes['langfuse.user.id']))).toEqual(new Set([ctx.actor.userId]));
+    expect(new Set(spans.map((span) => span.attributes['langfuse.trace.name']))).toEqual(new Set(['agent-chat']));
+    expect(new Set(spans.map((span) => span.attributes['langfuse.session.id']))).toEqual(new Set([run.conversationId]));
+    expect(spans[0]?.authorization).toBe(`Basic ${btoa('pk-lf-test:sk-lf-test')}`);
+    expect(spans[0]?.attributes).toMatchObject({ 'langfuse.observation.model.name': env.LLM_MODEL, 'langfuse.observation.usage_details': expect.stringMatching(/"input":\d+,"output":\d+/u) });
+    expect(spans[1]?.attributes['langfuse.observation.input']).toContain('42');
+    expect(JSON.parse(spans[2]?.attributes['langfuse.observation.output'] ?? '')).toEqual({ outcome: 'completed', steps: 2 });
+    expect(spans.some((span) => span.error)).toBe(false);
+
+    await (await env.AGENT_CHAT_WORKFLOW.get(run.id)).restart({ from: { name: 'commit-2' } });
+    await instance.waitForStatus('complete');
+    const replayed = await exportedSpans(traceIdOf(run));
+    expect(replayed.filter((span) => span.name.startsWith('model-'))).toHaveLength(2);
+    expect(new Set(replayed.filter((span) => span.name === 'run').map((span) => span.spanId)).size).toBe(1);
+  });
+
+  it('records a failed provider attempt as an error generation before the retry that succeeds', async () => {
+    const ctx = await context();
+    const run = await submit(ctx, `[transient] ${crypto.randomUUID()}`);
+    const instance = await observe(run.id);
+    await runs.start(run.id);
+    await instance.waitForStatus('complete');
+
+    const spans = await exportedSpans(traceIdOf(run));
+    expect(spans.map((span) => [span.name, span.attributes['langfuse.observation.level'] ?? 'DEFAULT'])).toEqual([
+      ['model-1', 'ERROR'], ['model-1', 'DEFAULT'], ['run', 'DEFAULT'],
+    ]);
+  });
+
+  it('closes a failed run with its saved failure', async () => {
+    const ctx = await context();
+    const run = await submit(ctx, `[quota] ${crypto.randomUUID()}`);
+    const instance = await observe(run.id);
+    await runs.start(run.id);
+    await instance.waitForStatus('complete');
+
+    const spans = await exportedSpans(traceIdOf(run));
+    expect(spans.map((span) => span.name)).toEqual(['model-1', 'run']);
+    expect(spans.map((span) => span.attributes['langfuse.session.id'])).toEqual([run.conversationId, run.conversationId]);
+    expect(spans.map((span) => span.error && JSON.parse(span.error))).toEqual([
+      { kind: 'provider_refused', reason: 'quota' }, { kind: 'provider_refused', reason: 'quota' },
+    ]);
   });
 });

@@ -42,7 +42,7 @@ const started = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('started'), now: instant,
     input: z.object({
-      runId, ownerId: userId, message: z.string(), history: z.array(exchange),
+      runId, ownerId: userId, conversationId, message: z.string(), history: z.array(exchange),
       policy: z.object({ maxSteps: z.number().int().positive(), maxToolCallsPerStep: z.number().int().positive() }),
       deadline: instant,
     }),
@@ -51,6 +51,7 @@ const started = z.discriminatedUnion('kind', [
 
 const committed = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('committed'), now: instant }),
+  z.object({ kind: z.literal('completed') }),
   z.object({ kind: z.literal('ended') }),
 ]);
 

@@ -1,3 +1,4 @@
+import { emit, type Status } from './events.ts';
 import { StepError } from './exec.ts';
 import type { Project } from './project.ts';
 
@@ -14,6 +15,10 @@ type StepBase = {
   id: string;
   group: Group;
   title: string;
+  /** First-run estimate for `tg watch`. */
+  seconds: number;
+  /** Output section headers, in order, that `tg watch` counts as progress. */
+  sections?: readonly string[];
   needs: readonly string[];
   observe(project: Project): Promise<Observation>;
 };
@@ -42,36 +47,51 @@ function failure(error: unknown): string {
 export async function evaluate(steps: readonly Step[], project: Project, apply: readonly Group[]): Promise<Outcome[]> {
   validateSteps(steps);
   const outcomes = new Map<string, Outcome>();
+  const settle = (outcome: Outcome) => {
+    outcomes.set(outcome.id, outcome);
+    // `tg status` writes nothing. Other commands report their own groups, and a step done elsewhere, such as in a clone generated earlier.
+    if (apply.length > 0 && (apply.includes(outcome.group) || outcome.state === 'done')) emit(project.root, { step: outcome.id, ...progress(outcome) });
+  };
 
   for (const step of steps) {
     const base = { id: step.id, group: step.group, title: step.title };
     const unmet = step.needs.filter(need => outcomes.get(need)?.state !== 'done');
 
     if (unmet.length > 0) {
-      outcomes.set(step.id, { ...base, state: 'blocked', on: unmet });
+      settle({ ...base, state: 'blocked', on: unmet });
       continue;
     }
 
     try {
       const seen = await step.observe(project);
 
-      if (seen.done) outcomes.set(step.id, { ...base, state: 'done', summary: seen.summary });
-      else if (step.actor !== 'script') outcomes.set(step.id, { ...base, state: 'waiting', actor: step.actor, instructions: step.instructions(project), summary: seen.summary });
-      else if (!apply.includes(step.group)) outcomes.set(step.id, { ...base, state: 'ready', summary: seen.summary });
+      if (seen.done) settle({ ...base, state: 'done', summary: seen.summary });
+      else if (step.actor !== 'script') settle({ ...base, state: 'waiting', actor: step.actor, instructions: step.instructions(project), summary: seen.summary });
+      else if (!apply.includes(step.group)) settle({ ...base, state: 'ready', summary: seen.summary });
       else {
         process.stderr.write(`tg: ${step.id}: ${step.title}\n`);
+        emit(project.root, { step: step.id, status: 'running' });
         await step.apply(project);
         const after = await step.observe(project);
 
         if (!after.done) throw new StepError(`${step.id} ran but its goal state is still missing${after.summary ? `: ${after.summary}` : ''}.`);
-        outcomes.set(step.id, { ...base, state: 'done', summary: after.summary });
+        settle({ ...base, state: 'done', summary: after.summary });
       }
     } catch (error) {
-      outcomes.set(step.id, { ...base, state: 'failed', reason: failure(error) });
+      settle({ ...base, state: 'failed', reason: failure(error) });
     }
   }
 
   return [...outcomes.values()];
+}
+
+function progress(outcome: Outcome): { status: Status; detail?: string } {
+  switch (outcome.state) {
+    case 'done': return { status: 'done', detail: outcome.summary };
+    case 'waiting': return { status: 'waiting', detail: outcome.summary ?? outcome.instructions };
+    case 'failed': return { status: 'failed', detail: outcome.reason };
+    default: return { status: 'pending' };
+  }
 }
 
 const marks = { done: '✓', ready: '○', waiting: '→', blocked: '·', failed: '✗' } as const;

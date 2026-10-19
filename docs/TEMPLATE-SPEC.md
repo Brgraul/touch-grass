@@ -572,6 +572,7 @@ export type RunPolicy = { maxSteps: number; maxToolCallsPerStep: number };
 export type RunInput = {
 	runId: RunId;
 	ownerId: UserId;
+	conversationId: ConversationId;
 	message: string;
 	history: readonly Exchange[];
 	policy: RunPolicy;
@@ -591,6 +592,7 @@ export type ModelOutcome =
 
 export type Commit =
 	| { kind: 'committed'; now: Instant }  // PostgreSQL time
+	| { kind: 'completed' }               // This step's commit completed the run.
 	| { kind: 'ended' };                   // The run is terminal. The loop stops.
 
 export class RunFailed extends Error { constructor(readonly failure: RunFailure) { super(failure.kind); } }
@@ -668,7 +670,7 @@ export class AgentChatWorkflow extends WorkflowEntrypoint<Env, unknown> {
 
 `DurableModel` implements the SDK's `Model` interface. Its `getResponse(request)` does this for model call `n`:
 
-1. If `n > 1`, run step `commit-${n - 1}`. It calls `commit_step` with `turnBlocks(previous response, request.input)`. If the step returns `ended`, throw `RunEnded`.
+1. If `n > 1`, run step `commit-${n - 1}`. It calls `commit_step` with `turnBlocks(previous response, request.input)`. If the step returns anything but `committed`, throw `RunEnded`.
 2. If `checkBeforeCall(input, n, now)` returns a failure, throw `RunFailed` with it.
 3. Run step `model-${n}` with `MODEL_STEP_CONFIG`. Inside the step, `runner.callModel(request)` sends the request through the provider from `platform/model.server.ts`, aborts it after `MODEL_CALL_TIMEOUT`, and returns a `ModelOutcome`. It throws only when `classifyModelError` returns `'retry'`, so Workflows retries the step.
 4. If the step throws after its retries, throw `RunFailed` with `limit: 'model_retries'`. If the outcome is `terminal`, or `checkResponse` returns a failure, throw `RunFailed` with it.
@@ -689,7 +691,7 @@ Workflow rules:
 
 - The payload is `{ runId }` and nothing else.
 - Step names come only from the call count. Never rename a step. A deploy replays running instances against the new code, and Workflows matches saved results by step name.
-- Code outside `step.do` is deterministic. SDK tracing is disabled, so no trace export runs on replay, and no trace data leaves the Worker.
+- Code outside `step.do` is deterministic. SDK tracing is disabled, so no trace export runs on replay. Run tracing goes to Langfuse from inside the steps instead (see [Run tracing](#run-tracing)).
 - `DurableModel` holds no domain logic. Every check is a function in `agent-chat.model.ts`.
 - `maxTurns` is one above `policy.maxSteps`, so `checkBeforeCall` reports the step limit after the last step is committed. `MaxTurnsExceededError` is only a backstop.
 - A pause, restart, or engine shutdown rejects the pending `step.do`. `isEngineControl` recognizes that rejection, and both `DurableModel` and `run` rethrow it. Without this, the catch-all would record `model_retries` or `internal` on a run that Workflows is about to resume.
@@ -701,12 +703,12 @@ Workflow rules:
 `commit_step(p_run_id, p_step_ordinal, p_blocks, p_final, p_usage)` runs in one transaction:
 
 1. Lock the run row.
-2. If a turn already exists for `(run_id, step_ordinal)`, the commit step is repeating. Return `ended` if the run is terminal, and otherwise `committed`.
+2. If a turn already exists for `(run_id, step_ordinal)`, the commit step is repeating. Return `completed` if that turn is the run's final turn, `ended` if the run is otherwise terminal, and otherwise `committed`.
 3. If the run is terminal, return `ended` and write nothing.
 4. If PostgreSQL `now` is at or past the deadline, fail the run with `limit: 'duration'` and return `ended`.
 5. Insert the agent turn, increment `committed_steps`, add the token usage, increment `version`, and set the conversation's `updated_at`.
 6. If `p_final` is true, complete the run with `final_turn_id` and `ended_at`.
-7. Return `ended` for a final step, or `committed` with PostgreSQL `now`.
+7. Return `completed` for a final step, or `committed` with PostgreSQL `now`.
 
 `fail_run(p_run_id, p_failure)` locks the run row. If the run is nonterminal, it records the failure. When PostgreSQL `now` is at or past the deadline, it records `limit: 'duration'` instead of the given failure, so a deadline that passes during a retry backoff ends as `duration`. It returns the durable winner either way.
 
@@ -720,6 +722,15 @@ Workflow rules:
 - **A lost run is noticed.** The sweep fails the run by `deadline + END_CHECK_GRACE`.
 
 The template accepts one cost. A model call repeats when its step's result fails to save, or when the step times out while the provider is still working. Each repeat can be charged. `MODEL_CALL_RETRIES` bounds a step to `MODEL_CALL_RETRIES + 1` model calls.
+
+### Run tracing
+
+`platform/telemetry.server.ts` exports `createTracer(env)`, which sends one OTLP/JSON span per `record` call to Langfuse at `LANGFUSE_BASE_URL`. It knows nothing about chat. Without both `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` it sends nothing, and `parseEnv` rejects one key without the other.
+
+- The trace ID is the run ID without hyphens. Every span carries the trace name `agent-chat`, the run owner as the Langfuse user, and the conversation ID as the Langfuse session. `start_run` returns the conversation ID in `RunInput` for this. `Trace.sessionId` is optional, and a span without one carries no session.
+- `runner.callModel` records one generation per provider request, named after its step (`model-<n>`), with the prompt, the output or failure, the token usage and the model. A retried attempt is an error generation.
+- The final commit, when `commit_step` returns `completed`, and the `fail` step record one `run` span. Its span ID comes from the trace ID, so a repeated step resends the same span. The sweep and cancellation record nothing.
+- Every export runs inside a step, so a replay that reuses a saved step sends nothing. An export waits at most `TRACE_EXPORT_TIMEOUT` (5 seconds), and `MODEL_STEP_TIMEOUT` exceeds `MODEL_CALL_TIMEOUT` plus that. A failed export logs `trace_export_failed` with the run ID and never fails the run.
 
 ### Model provider and errors
 
@@ -924,7 +935,7 @@ It contains no rules. The exact TanStack Start server-entry API follows the pinn
 - `workflows`: one entry named `agent-chat`, binding `AGENT_CHAT_WORKFLOW`, class `AgentChatWorkflow`.
 - `triggers.crons`: `["* * * * *"]`.
 - `vars`: `ENVIRONMENT_ID`, `APP_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `LLM_BASE_URL`, `LLM_MODEL`.
-- Secrets, set once per Worker with `wrangler secret put <NAME> --name touch-grass-<environment>` or in the dashboard: `SUPABASE_SECRET_KEY` and `LLM_API_KEY`. They persist across deploys, and the deploy never uploads them.
+- Secrets, set once per Worker with `wrangler secret put <NAME> --name touch-grass-<environment>` or in the dashboard: `SUPABASE_SECRET_KEY` and `LLM_API_KEY`, and optionally `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`. They persist across deploys, and the deploy never uploads them.
 
 ### Environment parsing
 

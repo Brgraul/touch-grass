@@ -11,6 +11,12 @@ const environment = z.object({
   LLM_BASE_URL: z.url(),
   LLM_API_KEY: z.string().min(1).refine((key) => key !== 'TOUCH_GRASS_SERVER_SECRET_SENTINEL_4b8ae730', 'Invalid model key'),
   LLM_MODEL: z.string().min(1),
+  LANGFUSE_BASE_URL: z.url().default('https://cloud.langfuse.com'),
+  LANGFUSE_PUBLIC_KEY: z.string().min(1).optional(),
+  LANGFUSE_SECRET_KEY: z.string().min(1).optional(),
+}).refine((settings) => (settings.LANGFUSE_PUBLIC_KEY === undefined) === (settings.LANGFUSE_SECRET_KEY === undefined), {
+  message: 'Set both Langfuse keys or neither',
+  path: ['LANGFUSE_SECRET_KEY'],
 })
 
 const parsed = new WeakMap<object, z.infer<typeof environment>>()

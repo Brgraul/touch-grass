@@ -28,14 +28,14 @@ export function push(project: Project): void {
   must('git', ['push', '--quiet', '--set-upstream', 'origin', `refs/heads/${branch}`], { cwd: project.root, env: quiet });
 }
 export const repositorySteps: Step[] = [
-  { id: 'scaffold', group: 'provisioning', title: 'Pinned template committed', needs: ['tools'], actor: 'script',
+  { id: 'scaffold', group: 'provisioning', title: 'Pinned template committed', seconds: 20, needs: ['tools'], actor: 'script',
     async observe(project) {
       if (generatedClone(project)) return { done: true, summary: 'repository generated earlier' };
       return scaffoldDone(project) ? { done: true, summary: 'initial committed template verified' } : { done: false };
     },
     async apply(project) { scaffold(project); },
   },
-  { id: 'push', group: 'provisioning', title: 'Initial commit pushed to origin', needs: ['scaffold'], actor: 'script',
+  { id: 'push', group: 'provisioning', title: 'Initial commit pushed to origin', seconds: 10, needs: ['scaffold'], actor: 'script',
     async observe(project) {
       if (generatedClone(project)) return { done: true, summary: 'repository generated earlier' };
       return pushDone(project) ? { done: true, summary: origin(project) } : { done: false };

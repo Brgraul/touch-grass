@@ -153,7 +153,7 @@ begin
     v_bytes := v_bytes + octet_length(v_exchange::text) + 1;
   end loop;
   return jsonb_build_object('kind', 'started', 'now', v_now, 'input', jsonb_build_object(
-    'runId', v_run.id, 'ownerId', v_run.owner_id, 'message', v_run.message,
+    'runId', v_run.id, 'ownerId', v_run.owner_id, 'conversationId', v_run.conversation_id, 'message', v_run.message,
     'history', v_history, 'policy', v_run.policy, 'deadline', v_run.deadline));
 end;
 $$;
@@ -208,6 +208,9 @@ begin
   v_now := clock_timestamp();
   if not found then return jsonb_build_object('kind', 'ended'); end if;
   if exists (select from agent_chat.turns where run_id = p_run_id and step_ordinal = p_step_ordinal) then
+    if v_run.state = 'completed' and v_run.final_turn_id = (select id from agent_chat.turns where run_id = p_run_id and step_ordinal = p_step_ordinal) then
+      return jsonb_build_object('kind', 'completed');
+    end if;
     if v_run.state in ('completed', 'failed', 'canceled') then return jsonb_build_object('kind', 'ended'); end if;
     return jsonb_build_object('kind', 'committed', 'now', v_now);
   end if;
@@ -235,7 +238,7 @@ begin
     final_turn_id = case when p_final then v_turn_id else null end,
     ended_at = case when p_final then v_now else null end where id = p_run_id;
   update agent_chat.conversations set updated_at = v_now where id = v_run.conversation_id;
-  if p_final then return jsonb_build_object('kind', 'ended'); end if;
+  if p_final then return jsonb_build_object('kind', 'completed'); end if;
   return jsonb_build_object('kind', 'committed', 'now', v_now);
 end;
 $$;
