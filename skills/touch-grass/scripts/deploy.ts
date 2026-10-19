@@ -10,11 +10,11 @@ import { parseArgs } from 'node:util';
 import { emit, pipe, type Status, statuses } from './lib/events.ts';
 import { run, StepError } from './lib/exec.ts';
 import {
-  configureSupabase, configureWrangler, deployRefs, type Environment, parseEnvironment, parseSecretName, placeholderEnvironmentId,
-  placeholderVar, type PoolerEntry, readStored, redact, secretNames, secretsPath, sessionPoolerUrl, stagingSteps, type Stored, storedNames, traceCheckEnv, updateStored, workerSecrets,
-} from './lib/staging.ts';
+  configureSupabase, configureWrangler, deployRefs, deploySteps, environmentNames, parseEnvironment, parseSecretName, placeholderEnvironmentId,
+  placeholderVar, type PoolerEntry, readStored, redact, secretNames, secretsPath, sessionPoolerUrl, type Stored, storedNames, traceCheckEnv, updateStored, workerSecrets,
+} from './lib/deploy.ts';
 
-export const usage = `Usage: tg staging <command> [--env dev|production]
+export const usage = `Usage: tg deploy <command> [--env <name>]
   login-supabase                  Run \`supabase login\` here and press its Enter prompt. Needs a visible terminal.
   login-cloudflare                Run \`wrangler login\` here. Needs a visible terminal.
   supabase --region <code> [--org <slug>] [--confirm-cost]
@@ -24,18 +24,19 @@ export const usage = `Usage: tg staging <command> [--env dev|production]
   google <client_secret.json>     Store a downloaded OAuth client's ID and secret privately.
   set <NAME>                      Read one secret from stdin, hidden in a terminal.
   llm-check                       Check LLM_API_KEY against the environment's LLM_BASE_URL and LLM_MODEL.
-  deploy                          Build, push migrations and Auth config, deploy the Worker, install Worker secrets.
+  push                            Build, push migrations and Auth config, deploy the Worker, install Worker secrets.
   verify                          Run \`pnpm verify:deployed\` for the environment.
   trace-check                     Send one chat message to the deployed app and check that its trace lands in Langfuse.
   mark <step> <status>            Record progress on a step you drive in the browser, for \`tg watch\`.
   status                          Show stored names and remaining placeholders. Prints no values.
+--env names an environment in wrangler.jsonc, and may be left out when there is only one.
 Run from the generated repository root. Each write merges into the current file.
 Secrets live in .env.deploy.<env> with mode 0600.`;
 
 const supabaseApi = 'https://api.supabase.com';
 const cloudflareApi = 'https://api.cloudflare.com/client/v4';
 
-type Context = { root: string; repo: string; environment: Environment; path: string; stored: Stored };
+type Context = { root: string; repo: string; environment: string; path: string; stored: Stored };
 
 async function call<T>(base: string, token: string, method: string, path: string, body?: unknown, allowMissing = false): Promise<T | undefined> {
   const label = `${method} ${base}${path.split('?')[0]}`;
@@ -80,13 +81,13 @@ function supabaseToken(): string {
     const raw = store();
     if (raw) return raw.startsWith('go-keyring-base64:') ? Buffer.from(raw.slice('go-keyring-base64:'.length), 'base64').toString('utf8') : raw;
   }
-  throw new StepError('No Supabase CLI login found. Run `tg staging login-supabase` in a visible terminal first.');
+  throw new StepError('No Supabase CLI login found. Run `tg deploy login-supabase` in a visible terminal first.');
 }
 
 function cloudflareToken(root: string): string {
   if (process.env.CLOUDFLARE_API_TOKEN) return process.env.CLOUDFLARE_API_TOKEN;
   // whoami refreshes an expired OAuth token before it is read from wrangler's config.
-  if (run(bin(root, 'wrangler'), ['whoami'], { cwd: root }).status !== 0) throw new StepError('Wrangler is not logged in. Run `tg staging login-cloudflare` in a visible terminal first.');
+  if (run(bin(root, 'wrangler'), ['whoami'], { cwd: root }).status !== 0) throw new StepError('Wrangler is not logged in. Run `tg deploy login-cloudflare` in a visible terminal first.');
   const dirs = [join(homedir(), 'Library', 'Preferences', '.wrangler'), join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), '.wrangler'), join(homedir(), '.wrangler')];
   for (const dir of dirs) {
     const file = join(dir, 'config', 'default.toml');
@@ -96,7 +97,7 @@ function cloudflareToken(root: string): string {
   throw new StepError('Wrangler is logged in, but its OAuth token was not found. Export CLOUDFLARE_API_TOKEN instead.');
 }
 
-async function readWranglerEnv(root: string, environment: Environment): Promise<{ name?: string; vars: Record<string, string> }> {
+async function readWranglerEnv(root: string, environment: string): Promise<{ name?: string; vars: Record<string, string> }> {
   const resolved = createRequire(join(root, 'package.json')).resolve('wrangler');
   const { unstable_readConfig: readConfig } = await import(pathToFileURL(resolved).href) as { unstable_readConfig(options: { config: string; env: string }): { name?: string; vars?: Record<string, unknown> } };
   const config = readConfig({ config: join(root, 'wrangler.jsonc'), env: environment });
@@ -193,7 +194,7 @@ async function cloudflareAccount(context: Context, token: string, requested?: st
 
 async function configure(context: Context, options: { account?: string }): Promise<void> {
   const ref = context.stored.SUPABASE_PROJECT_REF;
-  if (!ref) throw new StepError('Run `tg staging supabase` first.');
+  if (!ref) throw new StepError('Run `tg deploy supabase` first.');
   const keys = await must<Array<{ type?: string; api_key?: string }>>(supabaseApi, supabaseToken(), 'GET', `/v1/projects/${ref}/api-keys?reveal=false`);
   const publishableKey = keys.find(k => k.type === 'publishable')?.api_key;
   if (!publishableKey) throw new StepError(`Project ${ref} has no publishable key.`);
@@ -233,7 +234,7 @@ function google(context: Context, file: string | undefined): void {
 
 async function llmCheck(context: Context): Promise<void> {
   const key = context.stored.LLM_API_KEY;
-  if (!key) throw new StepError('No LLM_API_KEY stored. Run `tg staging set LLM_API_KEY` in a visible terminal.');
+  if (!key) throw new StepError('No LLM_API_KEY stored. Run `tg deploy set LLM_API_KEY` in a visible terminal.');
   const { vars } = await readWranglerEnv(context.root, context.environment);
   let response: Response;
   try { response = await fetch(`${vars.LLM_BASE_URL}/models`, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(30_000) }); }
@@ -247,14 +248,14 @@ async function llmCheck(context: Context): Promise<void> {
 type Binding = { type?: string; name?: string; text?: string };
 
 /** Resolves to the deployed APP_URL, which `tg watch` shows when setup is complete. */
-async function deploy(context: Context): Promise<string | undefined> {
+async function push(context: Context): Promise<string | undefined> {
   const missing = secretNames.filter(name => !context.stored[name]);
   if (missing.length) throw new StepError(`Missing in ${basename(context.path)}: ${missing.join(', ')}.`);
   const secrets = workerSecrets(context.stored);
   const { name: worker, vars } = await readWranglerEnv(context.root, context.environment);
   const refs = deployRefs(context.stored, vars.SUPABASE_URL);
-  if (!refs.config || refs.stored !== refs.config || refs.database !== refs.config) throw new StepError(`Project refs disagree: stored ${refs.stored}, wrangler.jsonc ${refs.config}, database URL ${refs.database}. Rerun \`tg staging supabase\` and \`configure\`.`);
-  if (!worker || !vars.ENVIRONMENT_ID || placeholderEnvironmentId.test(vars.ENVIRONMENT_ID)) throw new StepError('Run `tg staging configure` first.');
+  if (!refs.config || refs.stored !== refs.config || refs.database !== refs.config) throw new StepError(`Project refs disagree: stored ${refs.stored}, wrangler.jsonc ${refs.config}, database URL ${refs.database}. Rerun \`tg deploy supabase\` and \`configure\`.`);
+  if (!worker || !vars.ENVIRONMENT_ID || placeholderEnvironmentId.test(vars.ENVIRONMENT_ID)) throw new StepError('Run `tg deploy configure` first.');
 
   const cfToken = cloudflareToken(context.root);
   const account = await cloudflareAccount(context, cfToken);
@@ -312,7 +313,7 @@ function login(root: string, vendor: 'supabase' | 'cloudflare'): void {
   else done(spawnSync(binary, ['login'], { cwd: root, stdio: 'inherit' }));
 }
 
-export async function staging(argv: string[]): Promise<number> {
+export async function deploy(argv: string[]): Promise<number> {
   let parsed;
   try {
     parsed = parseArgs({ args: argv, allowPositionals: true, options: {
@@ -324,12 +325,12 @@ export async function staging(argv: string[]): Promise<number> {
   if (values.help || !command) { process.stdout.write(usage + '\n'); return values.help ? 0 : 1; }
   const root = process.cwd();
   if (!existsSync(join(root, 'wrangler.jsonc')) || !existsSync(join(root, 'supabase', 'config.toml'))) throw new StepError('Run this from the generated repository root.');
-  const environment = parseEnvironment(values.env);
+  const environment = parseEnvironment(values.env, environmentNames(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')));
   const path = secretsPath(root, environment);
   const context: Context = { root, repo: basename(root).toLowerCase(), environment, path, stored: readStored(path) };
 
   const step = progressStep(command, argument);
-  if (step) emit(root, { step, status: waits(command) ? 'waiting' : 'running', detail: waits(command) ? stagingSteps.find(s => s.id === step)?.person : undefined });
+  if (step) emit(root, { step, status: waits(command) ? 'waiting' : 'running', detail: waits(command) ? deploySteps.find(s => s.id === step)?.person : undefined });
   let detail: string | undefined;
   try { detail = await dispatch(context, command, argument, values, positionals[2]); }
   catch (error) { if (step) emit(root, { step, status: 'failed', detail: error instanceof StepError ? error.message : undefined }); throw error; }
@@ -337,7 +338,7 @@ export async function staging(argv: string[]): Promise<number> {
   return 0;
 }
 
-const commandSteps: Partial<Record<string, string>> = { 'login-cloudflare': 'login-cloudflare', 'login-supabase': 'login-supabase', supabase: 'supabase', configure: 'configure', google: 'google', 'llm-check': 'llm', deploy: 'deploy', verify: 'verify-deployed' };
+const commandSteps: Partial<Record<string, string>> = { 'login-cloudflare': 'login-cloudflare', 'login-supabase': 'login-supabase', supabase: 'supabase', configure: 'configure', google: 'google', 'llm-check': 'llm', push: 'deploy', verify: 'verify-deployed' };
 
 /** The `tg watch` step a command advances. */
 function progressStep(command: string, argument: string | undefined): string | undefined {
@@ -349,7 +350,7 @@ function progressStep(command: string, argument: string | undefined): string | u
 const waits = (command: string) => command === 'set' || command.startsWith('login-');
 
 function mark(root: string, step: string | undefined, status: string | undefined): void {
-  if (!stagingSteps.some(s => s.id === step)) throw new StepError(`Step must be one of ${stagingSteps.map(s => s.id).join(', ')}.`);
+  if (!deploySteps.some(s => s.id === step)) throw new StepError(`Step must be one of ${deploySteps.map(s => s.id).join(', ')}.`);
   if (!statuses.includes(status as Status)) throw new StepError(`Status must be one of ${statuses.join(', ')}.`);
   emit(root, { step: step!, status: status as Status });
 }
@@ -365,7 +366,7 @@ async function dispatch(context: Context, command: string, argument: string | un
     case 'google': google(context, argument); break;
     case 'set': { const name = parseSecretName(argument); const value = await readHidden(name); if (!value) throw new StepError('No value read.'); save(context, { [name]: value }); process.stdout.write(`stored ${name}\n`); break; }
     case 'llm-check': await llmCheck(context); break;
-    case 'deploy': return deploy(context);
+    case 'push': return push(context);
     case 'verify': await verify(context); break;
     case 'trace-check': await traceCheck(context); break;
     case 'status': await status(context); break;

@@ -9,7 +9,6 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Agent_Skill-18181B?style=flat-square" alt="Agent Skill">
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&amp;logo=typescript&amp;logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/TanStack_Start-65A30D?style=flat-square&amp;logo=tanstack&amp;logoColor=white" alt="TanStack Start">
   <img src="https://img.shields.io/badge/Cloudflare_Workers-F38020?style=flat-square&amp;logo=cloudflare&amp;logoColor=white" alt="Cloudflare Workers">
@@ -19,7 +18,7 @@
 </p>
 
 <p align="center">
-  <a href="#quickstart">Quickstart</a> · <a href="#architecture">Architecture</a> · <a href="skills/touch-grass/references/staging.md">Staging guide</a>
+  <a href="#quickstart">Quickstart</a> · <a href="#architecture">Architecture</a> · <a href="skills/touch-grass/references/deploy.md">Deploy guide</a>
 </p>
 
 Touch Grass is a template that makes it easy for coding agents to make the right choices. Its TypeScript scaffold catches mistakes early, and pre-installed skills help you get higher-quality code from every prompt. It also provisions an opinionated stack on Cloudflare, Supabase, the OpenAI Agents SDK, and Langfuse. Less plumbing, more fun shipping agents.
@@ -46,7 +45,7 @@ Note: For deployment, you'll need to approve the Cloudflare, Supabase and Google
 
 ## A codebase your coding agents will love
 
-Inspired by the principles behind Dune, the internal agent-first app framework that Lauren (@poteto) [walked through](https://www.youtube.com/watch?v=MN9dGgmLyso&t=1707s) in her breakdown of the engineering workflow at xAI.
+Inspired by the principles behind Dune, the internal agent-first app framework that Lauren (@poteto) [walked through](https://x.com/poteto/status/2102050467505430555) in her breakdown of the engineering workflow at xAI.
 
 - **Verifiable.** `pnpm check` runs the type checker, the lint rules, the import boundaries and every test suite. Correctness is enforced deterministically.
 - **Senior-engineer skills.** The bundled skills make agents work like a senior engineer: plan first, test as they go, and prove the change works before reporting success.
@@ -117,4 +116,4 @@ The template vendors agent skills pinned to upstream commits. They keep engineer
 | **Supabase** | PostgreSQL, authentication, and file storage. |
 | **Tests, CI, and `AGENTS.md`** | A starter built for coding agents. |
 | **Pinned agent skills** | Systematic debugging, verification before completion, and React best practices. |
-| **Resumable setup** | Rerun `$touch-grass` in the generated repo to verify it again and finish staging, without bootstrapping it again. |
+| **Resumable setup** | Rerun `$touch-grass` in the generated repo to verify it again and finish the deploy, without bootstrapping it again. |

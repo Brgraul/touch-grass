@@ -2,10 +2,10 @@ import { parseArgs } from 'node:util';
 import { evaluate, exitCode, render, report, type Group } from './lib/engine.ts';
 import { StepError } from './lib/exec.ts';
 import { findProjectRoot, Project } from './lib/project.ts';
-import { staging } from './staging.ts';
+import { deploy } from './deploy.ts';
 import { steps } from './steps/index.ts';
 import { watch } from './watch.ts';
-const usage = `Usage: tg <status|run|verify> [--json] | tg watch | tg staging <command> (see tg staging --help)
+const usage = `Usage: tg <status|run|verify> [--json] | tg watch | tg deploy <command> (see tg deploy --help)
   status  Observe provisioning and local verification without writes.
   run     Converge provisioning: scaffold and push. A repository generated earlier needs no provisioning.
   verify  Run the repository's pnpm verify and record a pass only for the clean HEAD it tested. Needs provisioning complete.
@@ -18,7 +18,7 @@ const modes: Record<string, { apply: readonly Group[]; required: readonly Group[
   verify: { apply: ['verification'], required: ['provisioning', 'verification'] },
 };
 try {
-  if (process.argv[2] === 'staging') process.exitCode = await staging(process.argv.slice(3));
+  if (process.argv[2] === 'deploy') process.exitCode = await deploy(process.argv.slice(3));
   else if (process.argv[2] === 'watch') process.exitCode = await watch(findProjectRoot());
   else {
     const { positionals, values } = parseArgs({ allowPositionals: true, options: { json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });

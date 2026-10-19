@@ -82,7 +82,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     const environment = process.env.CLOUDFLARE_ENV;
 
-    if (!environment) throw new DeployError('CLOUDFLARE_ENV must name the environment to deploy, "dev" or "production". Set it as a Workers Builds build variable.');
+    if (!environment) throw new DeployError('CLOUDFLARE_ENV must name the wrangler.jsonc environment to deploy, such as "production". Set it as a Workers Builds build variable.');
     const { unstable_readConfig: readConfig } = await import('wrangler');
     let vars: EnvironmentVars;
 

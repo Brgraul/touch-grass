@@ -1193,16 +1193,16 @@ If a check cannot run, report it as not run. Never claim success without it.
 
 ### Environments
 
-Each deployed environment is a named environment in `wrangler.jsonc` (`dev` and `production`). Its `vars` hold its nonsecret settings. Each environment has one Worker, `touch-grass-dev` or `touch-grass-production`, connected to the repository in Workers Builds.
+Each deployed environment is a named environment in `wrangler.jsonc`. The template ships one, `production`. Its `vars` hold its nonsecret settings. Each environment has one Worker, `touch-grass-production` for the shipped one, connected to the repository in Workers Builds. No tool hardcodes an environment name, so a project adds more environments, such as `staging`, by adding a `wrangler.jsonc` environment and a matching `[remotes.<name>]` block.
 
-| Setting | `dev` | `production` |
-|---|---|---|
-| Production branch | `main` | `production` |
-| Builds for non-production branches | Off | Off |
-| Build command | `pnpm build` | `pnpm build` |
-| Deploy command | `pnpm cf:deploy` | `pnpm cf:deploy` |
-| Build variables | `CLOUDFLARE_ENV=dev`, `PNPM_VERSION=11.25.0` | `CLOUDFLARE_ENV=production`, `PNPM_VERSION=11.25.0` |
-| Build secrets | `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_URL`, `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID`, `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET` | The same names with the production values |
+| Setting | `production` |
+|---|---|
+| Production branch | `main` |
+| Builds for non-production branches | Off |
+| Build command | `pnpm build` |
+| Deploy command | `pnpm cf:deploy` |
+| Build variables | `CLOUDFLARE_ENV=production`, `PNPM_VERSION=11.25.0` |
+| Build secrets | `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_URL`, `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID`, `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET` |
 
 - `CLOUDFLARE_ENV` makes the Vite plugin write the environment's name, bindings, and vars into `dist/server/wrangler.json`. `wrangler deploy` reads that redirected config, so the deploy never passes `--env`.
 - `PNPM_VERSION` is set because the build image defaults to pnpm 10.11.1. Node comes from `.node-version`.
@@ -1212,7 +1212,7 @@ Each deployed environment is a named environment in `wrangler.jsonc` (`dev` and 
 
 ### Deployment
 
-A push to `main` deploys `dev`. A push to `production` deploys `production`. Releasing production is `git push origin main:production`, a fast-forward. Workers Builds then runs `pnpm cf:deploy` with `tools/deploy.ts`, which stops at the first failure.
+A push to `main` deploys `production`. Workers Builds then runs `pnpm cf:deploy` with `tools/deploy.ts`, which stops at the first failure.
 
 1. Require `CLOUDFLARE_ENV` to name an environment in `wrangler.jsonc`.
 2. Refuse placeholder settings for that environment.
@@ -1228,7 +1228,7 @@ After a lost response at any step, inspect the migration history or the deployed
 
 ### Isolation
 
-- Development and production use separate Supabase projects or branches, separate Worker names, and separate LLM API keys.
+- Each hosted environment uses its own Supabase project or branch, its own Worker name, and its own LLM API key. Local development uses the local stack.
 - A test run owns its Auth users, Storage prefixes, Workflow instance IDs, and data.
 - Ordinary development needs no local containers. Container-backed local Supabase runs where Docker exists.
 - Never reset a production database or another developer's database. If no safe target exists, the check reports the missing capability and stops.
@@ -1238,7 +1238,7 @@ After a lost response at any step, inspect the migration history or the deployed
 - Target Cloudflare Free and Supabase Free. Never require a paid plan silently.
 - Avoid always-on compute. Keep Workflow steps small and I/O-bound.
 - Workflows on Workers Free allow 1,024 steps per instance, 100 concurrent instances per account, 10 ms of CPU per step, and 3 days of retention, according to Cloudflare's limits page at the time of writing. `ACTIVE_RUNS_PER_ENVIRONMENT` stays below the concurrency limit.
-- Workers Builds on Free allows 3,000 build minutes per month, 1 concurrent build per account, and a 20-minute build timeout, according to Cloudflare's limits page at the time of writing. The two Workers share the one concurrent build.
+- Workers Builds on Free allows 3,000 build minutes per month, 1 concurrent build per account, and a 20-minute build timeout, according to Cloudflare's limits page at the time of writing.
 - Supabase Free projects pause after inactivity. `verify:deployed` reports a paused project as a failed prerequisite.
 - `verify:deployed` reads `<SUPABASE_URL>/auth/v1/settings` and reports a disabled Google provider as a failed prerequisite.
 - LLM spend is the only external cost. Google sign-in is free. The README of the generated app lists the cost.

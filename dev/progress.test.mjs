@@ -55,17 +55,17 @@ test('every screen line fits the terminal width', () => {
   for (const line of screen.split('\n')) assert.ok(line.length <= 60, line);
 });
 
-test('tg staging records its steps for tg watch and rejects unknown ones', t => {
+test('tg deploy records its steps for tg watch and rejects unknown ones', t => {
   const dir = mkdtempSync(join(tmpdir(), 'touch grass progress '));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   spawnSync('git', ['init', '-q'], { cwd: dir });
-  writeFileSync(join(dir, 'wrangler.jsonc'), '{}');
+  writeFileSync(join(dir, 'wrangler.jsonc'), '{ "env": { "production": {} } }');
   mkdirSync(join(dir, 'supabase'));
   writeFileSync(join(dir, 'supabase/config.toml'), '');
-  assert.equal(spawnSync(tg, ['staging', 'mark', 'acceptance', 'running'], { cwd: dir }).status, 0);
-  const google = spawnSync(tg, ['staging', 'google', join(dir, 'missing.json')], { cwd: dir, encoding: 'utf8' });
+  assert.equal(spawnSync(tg, ['deploy', 'mark', 'acceptance', 'running'], { cwd: dir }).status, 0);
+  const google = spawnSync(tg, ['deploy', 'google', join(dir, 'missing.json')], { cwd: dir, encoding: 'utf8' });
   assert.equal(google.status, 1);
-  const unknown = spawnSync(tg, ['staging', 'mark', 'nope', 'done'], { cwd: dir, encoding: 'utf8' });
+  const unknown = spawnSync(tg, ['deploy', 'mark', 'nope', 'done'], { cwd: dir, encoding: 'utf8' });
   assert.equal(unknown.status, 1);
   assert.match(unknown.stderr, /Step must be one of/);
   const events = readFileSync(join(dir, '.git/touch-grass-progress/events.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
@@ -82,13 +82,13 @@ test('tg status writes no progress', t => {
 
 test('the finished screen shows the logo, the tagline and what each step took, and drops the logo when the terminal is too small', () => {
   const ids = ['tools', 'scaffold', 'push', 'local-verification', 'login-cloudflare', 'login-supabase', 'supabase', 'configure', 'google', 'llm', 'langfuse', 'deploy', 'verify-deployed', 'acceptance'];
-  const done = view([...bootstrapped, { t: minute, step: 'local-verification', status: 'running' }, { t: 3 * minute, step: 'local-verification', status: 'done' }, ...ids.map(step => ({ t: 4 * minute, step, status: 'done' })), { t: 4 * minute, step: 'deploy', status: 'done', detail: 'https://demo-dev.acme.workers.dev' }]);
+  const done = view([...bootstrapped, { t: minute, step: 'local-verification', status: 'running' }, { t: 3 * minute, step: 'local-verification', status: 'done' }, ...ids.map(step => ({ t: 4 * minute, step, status: 'done' })), { t: 4 * minute, step: 'deploy', status: 'done', detail: 'https://demo-production.acme.workers.dev' }]);
   const wide = frame(done, 5 * minute, 100, 40, false);
   for (const color of ['truecolor', 'ansi256']) assert.match(frame(done, 5 * minute, 100, 40, color), /\x1b\[38;[25];[\d;]+m▀/);
   assert.doesNotMatch(wide, /▀/, 'no logo without color');
   assert.match(wide, /Ready for high-leverage prompting, from your desk or the great outdoors! ☀️/);
   assert.match(wide, /✓ Bootstrap 20s {3}✓ Verify 2m00s {3}✓ Deploy/);
-  assert.match(wide, /Staging is live at https:\/\/demo-dev\.acme\.workers\.dev/);
+  assert.match(wide, /Live at https:\/\/demo-production\.acme\.workers\.dev/);
   assert.match(frame(done, 5 * minute, 60, 40, false), /Ready for high-leverage prompting,\n +from your desk or the great outdoors! ☀️/);
   const small = frame(done, 5 * minute, 30, 12, false);
   assert.doesNotMatch(frame(done, 5 * minute, 30, 12, 'truecolor'), /▀/);

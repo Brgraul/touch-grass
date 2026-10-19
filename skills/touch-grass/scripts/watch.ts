@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { type Event, type ProgressStep, progressDir, type Status } from './lib/events.ts';
 import { StepError } from './lib/exec.ts';
 import { logo } from './lib/logo.ts';
-import { stagingSteps } from './lib/staging.ts';
+import { deploySteps } from './lib/deploy.ts';
 import { steps } from './steps/index.ts';
 
 export type Phase = { title: string; steps: readonly ProgressStep[] };
@@ -11,7 +11,7 @@ export type Phase = { title: string; steps: readonly ProgressStep[] };
 export const phases: readonly Phase[] = [
   { title: 'Bootstrap', steps: steps.filter(step => step.group === 'provisioning') },
   { title: 'Verify', steps: steps.filter(step => step.group === 'verification') },
-  { title: 'Deploy', steps: stagingSteps },
+  { title: 'Deploy', steps: deploySteps },
 ];
 
 /** `section` is the index in the step's `sections` of the last header its current run printed. */
@@ -124,7 +124,7 @@ function finale(view: View, width: number, height: number, color: Color, paint: 
   }).join('   ');
   lines.push(paint('32', centered(clip(took))));
   const url = view.steps.get('deploy')?.detail;
-  if (url?.startsWith('https://')) lines.push('', paint('1;36', centered(clip(`Staging is live at ${url}`))));
+  if (url?.startsWith('https://')) lines.push('', paint('1;36', centered(clip(`Live at ${url}`))));
   return lines.join('\n');
 }
 

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { run } from './exec.ts';
-import { redact } from './staging.ts';
+import { redact } from './deploy.ts';
 
 export type Status = 'pending' | 'running' | 'waiting' | 'done' | 'skipped' | 'failed';
 export const statuses: readonly Status[] = ['pending', 'running', 'waiting', 'done', 'skipped', 'failed'];

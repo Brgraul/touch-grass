@@ -1453,8 +1453,8 @@
     "id": "repo-auth-urls",
     "kind": "repo",
     "files": {
-      "wrangler.jsonc": "{\n  // comments are allowed\n  \"env\": { \"dev\": { \"vars\": { \"APP_URL\": \"https://app.example.test\" } } }\n}\n",
-      "supabase/config.toml": "[remotes.dev.auth]\nsite_url = \"http://localhost:3000\"\nadditional_redirect_urls = [\"https://app.example.test/auth/callback\"]\n"
+      "wrangler.jsonc": "{\n  // comments are allowed\n  \"env\": { \"production\": { \"vars\": { \"APP_URL\": \"https://app.example.test\" } } }\n}\n",
+      "supabase/config.toml": "[remotes.production.auth]\nsite_url = \"http://localhost:3000\"\nadditional_redirect_urls = [\"https://app.example.test/auth/callback\"]\n"
     },
     "expected": [
       {
@@ -1467,8 +1467,8 @@
     "id": "repo-auth-urls-match",
     "kind": "repo",
     "files": {
-      "wrangler.jsonc": "{\n  // comments are allowed\n  \"env\": { \"dev\": { \"vars\": { \"APP_URL\": \"https://app.example.test\" } } }\n}\n",
-      "supabase/config.toml": "[remotes.dev.auth]\nsite_url = \"https://app.example.test\"\nadditional_redirect_urls = [\"https://app.example.test/auth/callback\"]\n"
+      "wrangler.jsonc": "{\n  // comments are allowed\n  \"env\": { \"production\": { \"vars\": { \"APP_URL\": \"https://app.example.test\" } } }\n}\n",
+      "supabase/config.toml": "[remotes.production.auth]\nsite_url = \"https://app.example.test\"\nadditional_redirect_urls = [\"https://app.example.test/auth/callback\"]\n"
     },
     "expected": []
   }

@@ -3,9 +3,6 @@ import { join } from 'node:path';
 import type { ProgressStep } from './events.ts';
 import { StepError } from './exec.ts';
 
-export const environments = ['dev', 'production'] as const;
-export type Environment = (typeof environments)[number];
-
 /** Values a deploy needs that never enter the repository. The Supabase access token stays in the CLI's own store. */
 export const secretNames = ['SUPABASE_PROJECT_REF', 'SUPABASE_DB_PASSWORD', 'SUPABASE_DB_URL', 'SUPABASE_SECRET_KEY', 'SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID', 'SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET', 'LLM_API_KEY'] as const;
 /** Langfuse tracing stays off until both keys are stored, so a deploy needs neither. */
@@ -17,8 +14,8 @@ export type SecretName = (typeof secretNames)[number] | (typeof optionalSecretNa
 export type StoredName = (typeof storedNames)[number];
 export type Stored = Partial<Record<StoredName, string>>;
 
-/** staging.md's steps in its order, as `tg watch` lists them. */
-export const stagingSteps: readonly ProgressStep[] = [
+/** deploy.md's steps in its order, as `tg watch` lists them. */
+export const deploySteps: readonly ProgressStep[] = [
   { id: 'login-cloudflare', title: 'Cloudflare login', seconds: 45, person: 'approve the Cloudflare login in your browser' },
   { id: 'login-supabase', title: 'Supabase login', seconds: 60, person: 'approve the Supabase login and type its code in the terminal' },
   { id: 'supabase', title: 'Supabase project', seconds: 150 },
@@ -31,10 +28,27 @@ export const stagingSteps: readonly ProgressStep[] = [
   { id: 'acceptance', title: 'Acceptance journey', seconds: 240, person: 'choose your Google account and consent' },
 ];
 
-export function parseEnvironment(value: string | undefined): Environment {
-  const environment = value ?? 'dev';
-  if (!environments.includes(environment as Environment)) throw new StepError(`Environment must be one of ${environments.join(', ')}.`);
-  return environment as Environment;
+/** Deletes each match of `pattern` that is not inside a JSON string. */
+const outsideStrings = (text: string, pattern: string) => text.replace(new RegExp(`"(?:\\\\.|[^"\\\\])*"|${pattern}`, 'g'), token => token.startsWith('"') ? token : '');
+const jsoncComments = String.raw`//[^\n]*|/\*[\s\S]*?\*/`;
+const trailingCommas = String.raw`,(?=\s*[}\]])`;
+
+/** The hosted environments: the keys under `env` in wrangler.jsonc, read without the generated repository's dependencies. */
+export function environmentNames(wranglerText: string): string[] {
+  let config: { env?: unknown };
+  try { config = JSON.parse(outsideStrings(outsideStrings(wranglerText, jsoncComments), trailingCommas)) as typeof config; }
+  catch { throw new StepError('wrangler.jsonc is not valid JSONC.'); }
+  return config.env && typeof config.env === 'object' ? Object.keys(config.env) : [];
+}
+
+/** The `--env` value, which must name a wrangler.jsonc environment. Without one, the only environment. */
+export function parseEnvironment(value: string | undefined, available: readonly string[]): string {
+  const invalid = available.find(name => !/^[a-z0-9][a-z0-9_-]*$/.test(name));
+  if (invalid) throw new StepError(`wrangler.jsonc environment "${invalid}" must use only lowercase letters, digits, hyphens and underscores.`);
+  if (!available.length) throw new StepError('wrangler.jsonc has no hosted environment under "env".');
+  if (value === undefined && available.length === 1) return available[0] as string;
+  if (value !== undefined && available.includes(value)) return value;
+  throw new StepError(`${value === undefined ? 'Pass --env with' : 'Environment must be'} one of ${available.join(', ')}.`);
 }
 
 export function parseSecretName(value: string | undefined): SecretName {
@@ -46,11 +60,11 @@ export function parseSecretName(value: string | undefined): SecretName {
 /** The settings the template's Langfuse e2e reads to run against a deployed environment: its public vars and two stored secrets. */
 export function traceCheckEnv(vars: Record<string, string>, stored: Stored): Record<string, string> {
   const { SUPABASE_SECRET_KEY, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY } = stored;
-  if (!LANGFUSE_PUBLIC_KEY || !LANGFUSE_SECRET_KEY) throw new StepError('Langfuse keys are not stored. Run `tg staging set LANGFUSE_PUBLIC_KEY` and `tg staging set LANGFUSE_SECRET_KEY`, then `tg staging deploy`.');
-  if (!SUPABASE_SECRET_KEY) throw new StepError('No SUPABASE_SECRET_KEY stored. Run `tg staging supabase` first.');
+  if (!LANGFUSE_PUBLIC_KEY || !LANGFUSE_SECRET_KEY) throw new StepError('Langfuse keys are not stored. Run `tg deploy set LANGFUSE_PUBLIC_KEY` and `tg deploy set LANGFUSE_SECRET_KEY`, then `tg deploy push`.');
+  if (!SUPABASE_SECRET_KEY) throw new StepError('No SUPABASE_SECRET_KEY stored. Run `tg deploy supabase` first.');
   const { APP_URL, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, LANGFUSE_BASE_URL } = vars;
   if (!APP_URL || !SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY || [APP_URL, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY].some(value => placeholderVar.test(value))) {
-    throw new StepError('wrangler.jsonc still holds placeholders for this environment. Run `tg staging configure` first.');
+    throw new StepError('wrangler.jsonc still holds placeholders for this environment. Run `tg deploy configure` first.');
   }
   return { EXTERNAL_APP: '1', APP_URL, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, ...(LANGFUSE_BASE_URL && { LANGFUSE_BASE_URL }) };
 }
@@ -65,7 +79,7 @@ export function workerSecrets(stored: Stored): Array<[string, string]> {
 }
 
 /** Vite loads `.env.<mode>`, so the name avoids `.env.production`. The template's `.env*` rule ignores it. */
-export function secretsPath(root: string, environment: Environment): string {
+export function secretsPath(root: string, environment: string): string {
   return join(root, `.env.deploy.${environment}`);
 }
 
@@ -98,7 +112,7 @@ export function redact(text: string, values: Iterable<string | undefined>): stri
 }
 
 /** The `[start, end)` span of `"<environment>": { ... }` in wrangler.jsonc, braces matched outside strings. */
-function envBlock(text: string, environment: Environment): [number, number] {
+function envBlock(text: string, environment: string): [number, number] {
   const open = new RegExp(`"${environment}"\\s*:\\s*\\{`).exec(text);
   if (!open) throw new StepError(`wrangler.jsonc has no "${environment}" environment.`);
   let depth = 0;
@@ -123,7 +137,7 @@ const setVar = (block: string, key: string, value: string) => setString(block, n
 export const placeholderEnvironmentId = /^00000000-0000-4000-8000-0000000000\d\d$/;
 
 /** A wrangler.jsonc var that `configure` has not filled yet. */
-export const placeholderVar = /configure-|\.example\.|(?:dev|production)-project\.supabase\.co/;
+export const placeholderVar = /configure-|\.example\.|[a-z]+-project\.supabase\.co/;
 
 export type WranglerSettings = { repo: string; subdomain: string; projectRef: string; publishableKey: string; environmentId: string };
 
@@ -131,7 +145,7 @@ export type WranglerSettings = { repo: string; subdomain: string; projectRef: st
  * Fills one environment's hosted vars. On first configuration (placeholder ENVIRONMENT_ID) it also names the Worker and
  * Workflow `<repo>-<environment>`, because every generated repo starts with the same names and would deploy over another's.
  */
-export function configureWrangler(text: string, environment: Environment, settings: WranglerSettings): { text: string; appUrl: string; worker: string; environmentId: string } {
+export function configureWrangler(text: string, environment: string, settings: WranglerSettings): { text: string; appUrl: string; worker: string; environmentId: string } {
   if (!/^[a-z0-9-]+$/.test(settings.subdomain)) throw new StepError('Cloudflare subdomain is invalid.');
   if (!/^[a-z]{20}$/.test(settings.projectRef)) throw new StepError('Supabase project ref must be 20 lowercase letters.');
   if (!/^[a-z][a-z0-9-]{1,38}$/.test(settings.repo)) throw new StepError('Repository name must be 2 to 39 lowercase letters, digits or hyphens.');
@@ -145,7 +159,7 @@ export function configureWrangler(text: string, environment: Environment, settin
     block = setString(block, /("workflows"\s*:\s*\[\s*\{\s*"name"\s*:\s*)"[^"]*"/, 'Workflow name', `${settings.repo}-agent-chat-${environment}`);
     block = setVar(block, 'ENVIRONMENT_ID', environmentId);
   }
-  const worker = /^\s*"[a-z]+"\s*:\s*\{\s*"name"\s*:\s*"([a-z0-9-]+)"/.exec(block)?.[1];
+  const worker = /^\s*"[^"]+"\s*:\s*\{\s*"name"\s*:\s*"([a-z0-9-]+)"/.exec(block)?.[1];
   if (!worker) throw new StepError(`wrangler.jsonc "${environment}" environment must start with its Worker name.`);
   const appUrl = `https://${worker}.${settings.subdomain}.workers.dev`;
   block = setVar(block, 'APP_URL', appUrl);
@@ -155,7 +169,7 @@ export function configureWrangler(text: string, environment: Environment, settin
 }
 
 /** Points `[remotes.<environment>]` at the project and its Auth URLs at the deployed app, keeping redirect URLs on other hosts. */
-export function configureSupabase(text: string, environment: Environment, projectRef: string, appUrl: string): string {
+export function configureSupabase(text: string, environment: string, projectRef: string, appUrl: string): string {
   let section = '';
   const seen = new Set<string>();
   const lines = text.split('\n').map(line => {

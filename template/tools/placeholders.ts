@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 
-const placeholder = /configure-|\.example\.|(?:dev|production)-project\.supabase\.co/;
+const placeholder = /configure-|\.example\.|[a-z]+-project\.supabase\.co/;
 
 /** The `vars` block of one wrangler.jsonc environment. The template keeps every var a string. */
 export const environmentVars = z.record(z.string(), z.string());

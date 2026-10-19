@@ -67,15 +67,8 @@ skip_nonce_check = false
 enabled = true
 
 # Each hosted project overrides the local site URL and redirect list. `project_id`
-# must match the project that `supabase config push` targets. Replace both
-# placeholders with the 20-letter project references (see README).
-[remotes.dev]
-project_id = "devprojectrefplaceho"
-
-[remotes.dev.auth]
-site_url = "https://touch-grass-dev.example.workers.dev"
-additional_redirect_urls = ["https://touch-grass-dev.example.workers.dev/auth/callback"]
-
+# must match the project that `supabase config push` targets. Replace the
+# placeholder with the 20-letter project reference (see README).
 [remotes.production]
 project_id = "prodprojectrefplacho"
 

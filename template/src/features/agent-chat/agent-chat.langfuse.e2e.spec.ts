@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createTestUser, deleteTestUser, signInAs, signInTestUser } from '../../../tests/fixtures/test-users'
 
 // The app under test must hold the same keys, in `.dev.vars` locally or as Worker secrets when deployed.
-// The checks hold for the local provider double and for a real model, so the test also runs against staging.
+// The checks hold for the local provider double and for a real model, so the test also runs against a deployed environment.
 const langfuse = z.object({
   LANGFUSE_BASE_URL: z.url().default('https://cloud.langfuse.com'),
   LANGFUSE_PUBLIC_KEY: z.string().min(1),

@@ -9,7 +9,7 @@ export const groups = ['provisioning', 'deployment', 'verification'] as const;
 export type Group = (typeof groups)[number];
 
 /** The command whose run applies a group's script steps. */
-export const commands: Record<Group, string> = { provisioning: 'tg run', verification: 'tg verify', deployment: 'tg staging' };
+export const commands: Record<Group, string> = { provisioning: 'tg run', verification: 'tg verify', deployment: 'tg deploy' };
 
 type StepBase = {
   id: string;

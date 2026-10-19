@@ -194,7 +194,7 @@ async function verify(environment: string, settings: Settings): Promise<boolean>
 const environment = options.env;
 
 if (!environment) {
-  process.stderr.write('Usage: pnpm verify:deployed --env <local|dev|production>\n');
+  process.stderr.write('Usage: pnpm verify:deployed --env <local|environment>\n');
   process.exit(2);
 }
 

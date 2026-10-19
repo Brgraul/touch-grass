@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { configureSupabase, configureWrangler, deployRefs, parseSecretName, readStored, redact, secretsPath, sessionPoolerUrl, traceCheckEnv, updateStored, workerSecrets } from '../skills/touch-grass/scripts/lib/staging.ts';
+import { configureSupabase, configureWrangler, deployRefs, environmentNames, parseEnvironment, parseSecretName, readStored, redact, secretsPath, sessionPoolerUrl, traceCheckEnv, updateStored, workerSecrets } from '../skills/touch-grass/scripts/lib/deploy.ts';
 import { pipe } from '../skills/touch-grass/scripts/lib/events.ts';
-import { supabase } from '../skills/touch-grass/scripts/staging.ts';
+import { supabase } from '../skills/touch-grass/scripts/deploy.ts';
 import { findPlaceholder } from '../template/tools/placeholders.ts';
 import { parseTarget } from '../template/tools/deploy.ts';
 
@@ -16,63 +16,84 @@ const scripts = join(repo, 'skills/touch-grass/scripts');
 const template = join(repo, 'template');
 const wrangler = readFileSync(join(template, 'wrangler.jsonc'), 'utf8');
 const supabaseToml = readFileSync(join(template, 'supabase/config.toml'), 'utf8');
+/** The template with a `staging` environment added in front of `production`, the way README's "Add an environment" describes. */
+const productionEnv = wrangler.slice(wrangler.indexOf('    "production": {'), wrangler.lastIndexOf('\n  }'));
+const productionRemote = supabaseToml.slice(supabaseToml.indexOf('[remotes.production]'));
+const withStaging = {
+  wrangler: wrangler.replace(productionEnv, `${productionEnv.replaceAll('production', 'staging')},\n${productionEnv}`),
+  toml: supabaseToml.replace(productionRemote, `${productionRemote.replaceAll('production', 'staging')}\n${productionRemote}`),
+};
 const settings = { repo: 'fresh-app', subdomain: 'acme', projectRef: 'abcdefghijklmnopqrst', publishableKey: 'sb_publishable_test', environmentId: '11111111-2222-4333-8444-555555555555' };
 
 /** The vars wrangler would read for one environment, pulled from the patched text the same way for both files under test. */
 function envVars(text, env) {
   const start = text.indexOf(`"${env}": {`);
-  const block = text.slice(start, env === 'dev' ? text.indexOf('"production": {') : undefined);
+  const block = text.slice(start, text.indexOf('\n    }', start));
   return Object.fromEntries([...block.matchAll(/"([A-Z_]+)": "([^"]*)"/g)].map(m => [m[1], m[2]]));
 }
 
 function tempDir(t) {
-  const dir = mkdtempSync(join(tmpdir(), 'touch grass staging '));
+  const dir = mkdtempSync(join(tmpdir(), 'touch grass deploy '));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
 
 test('first configure fills the chosen environment, names its Worker after the repo, and passes the template deploy checks', () => {
-  const result = configureWrangler(wrangler, 'dev', settings);
-  assert.equal(result.worker, 'fresh-app-dev');
-  assert.equal(result.appUrl, 'https://fresh-app-dev.acme.workers.dev');
-  assert.match(result.text, /"name": "fresh-app-dev",\n\s+"workflows": \[\{ "name": "fresh-app-agent-chat-dev"/);
-  const vars = envVars(result.text, 'dev');
+  const result = configureWrangler(wrangler, 'production', settings);
+  assert.equal(result.worker, 'fresh-app-production');
+  assert.equal(result.appUrl, 'https://fresh-app-production.acme.workers.dev');
+  assert.match(result.text, /"name": "fresh-app-production",\n\s+"workflows": \[\{ "name": "fresh-app-agent-chat-production"/);
+  const vars = envVars(result.text, 'production');
   assert.equal(findPlaceholder(vars), undefined);
   assert.equal(vars.ENVIRONMENT_ID, settings.environmentId);
-  assert.ok(findPlaceholder(envVars(result.text, 'production')), 'production keeps its placeholders');
   assert.ok(result.text.startsWith(wrangler.slice(0, wrangler.indexOf('"env"'))), 'top-level local config unchanged');
 
-  const toml = configureSupabase(supabaseToml, 'dev', settings.projectRef, result.appUrl);
-  assert.deepEqual(parseTarget('dev', vars, toml), { environment: 'dev', projectRef: settings.projectRef });
-  assert.match(toml, /additional_redirect_urls = \["https:\/\/fresh-app-dev\.acme\.workers\.dev\/auth\/callback"\]/);
-  assert.match(toml, /project_id = "prodprojectrefplacho"/);
+  const toml = configureSupabase(supabaseToml, 'production', settings.projectRef, result.appUrl);
+  assert.deepEqual(parseTarget('production', vars, toml), { environment: 'production', projectRef: settings.projectRef });
+  assert.match(toml, /additional_redirect_urls = \["https:\/\/fresh-app-production\.acme\.workers\.dev\/auth\/callback"\]/);
   assert.match(toml, /^site_url = "http:\/\/127\.0\.0\.1:3000"$/m, 'local Auth URL unchanged');
 });
 
+test('the environments come from wrangler.jsonc, so an added one configures without touching the others', () => {
+  assert.deepEqual(environmentNames(wrangler), ['production']);
+  assert.equal(parseEnvironment(undefined, environmentNames(wrangler)), 'production', 'the only environment needs no --env');
+  assert.deepEqual(environmentNames(withStaging.wrangler), ['staging', 'production']);
+  assert.throws(() => parseEnvironment(undefined, environmentNames(withStaging.wrangler)), /Pass --env with one of staging, production/);
+  assert.throws(() => parseEnvironment('dev', environmentNames(withStaging.wrangler)), /must be one of staging, production/);
+
+  const result = configureWrangler(withStaging.wrangler, parseEnvironment('staging', environmentNames(withStaging.wrangler)), settings);
+  assert.equal(result.worker, 'fresh-app-staging');
+  assert.equal(findPlaceholder(envVars(result.text, 'staging')), undefined);
+  assert.ok(findPlaceholder(envVars(result.text, 'production')), 'production keeps its placeholders');
+  const toml = configureSupabase(withStaging.toml, 'staging', settings.projectRef, result.appUrl);
+  assert.deepEqual(parseTarget('staging', envVars(result.text, 'staging'), toml), { environment: 'staging', projectRef: settings.projectRef });
+  assert.match(toml, /project_id = "prodprojectrefplacho"/, 'production keeps its Supabase placeholder');
+});
+
 test('reconfiguring keeps the Worker name and environment ID of an already configured environment', () => {
-  const first = configureWrangler(wrangler, 'dev', settings).text;
-  const second = configureWrangler(first, 'dev', { ...settings, repo: 'other-app', environmentId: '99999999-9999-4999-8999-999999999999' });
+  const first = configureWrangler(wrangler, 'production', settings).text;
+  const second = configureWrangler(first, 'production', { ...settings, repo: 'other-app', environmentId: '99999999-9999-4999-8999-999999999999' });
   assert.equal(second.text, first);
-  assert.equal(second.worker, 'fresh-app-dev');
+  assert.equal(second.worker, 'fresh-app-production');
 });
 
 test('configure keeps redirect URLs on other hosts and refuses a multi-line list instead of corrupting it', () => {
-  const custom = supabaseToml.replace('additional_redirect_urls = ["https://touch-grass-dev.example.workers.dev/auth/callback"]', 'additional_redirect_urls = ["https://touch-grass-dev.example.workers.dev/auth/callback", "https://app.example.com/auth/callback"]');
-  assert.match(configureSupabase(custom, 'dev', settings.projectRef, 'https://a.b.workers.dev'), /\["https:\/\/a\.b\.workers\.dev\/auth\/callback","https:\/\/app\.example\.com\/auth\/callback"\]/);
-  const multiline = supabaseToml.replace('additional_redirect_urls = ["https://touch-grass-dev.example.workers.dev/auth/callback"]', 'additional_redirect_urls = [\n  "https://touch-grass-dev.example.workers.dev/auth/callback",\n]');
-  assert.throws(() => configureSupabase(multiline, 'dev', settings.projectRef, 'https://a.b.workers.dev'), /one-line array/);
+  const custom = supabaseToml.replace('additional_redirect_urls = ["https://touch-grass-production.example.workers.dev/auth/callback"]', 'additional_redirect_urls = ["https://touch-grass-production.example.workers.dev/auth/callback", "https://app.example.com/auth/callback"]');
+  assert.match(configureSupabase(custom, 'production', settings.projectRef, 'https://a.b.workers.dev'), /\["https:\/\/a\.b\.workers\.dev\/auth\/callback","https:\/\/app\.example\.com\/auth\/callback"\]/);
+  const multiline = supabaseToml.replace('additional_redirect_urls = ["https://touch-grass-production.example.workers.dev/auth/callback"]', 'additional_redirect_urls = [\n  "https://touch-grass-production.example.workers.dev/auth/callback",\n]');
+  assert.throws(() => configureSupabase(multiline, 'production', settings.projectRef, 'https://a.b.workers.dev'), /one-line array/);
 });
 
 test('configure rejects malformed identities instead of writing them', () => {
-  assert.throws(() => configureWrangler(wrangler, 'dev', { ...settings, projectRef: 'short' }));
-  assert.throws(() => configureWrangler(wrangler, 'dev', { ...settings, subdomain: 'bad/sub' }));
-  assert.throws(() => configureSupabase('[remotes.dev]\nproject_id = "x"\n', 'dev', settings.projectRef, 'https://a'));
+  assert.throws(() => configureWrangler(wrangler, 'production', { ...settings, projectRef: 'short' }));
+  assert.throws(() => configureWrangler(wrangler, 'production', { ...settings, subdomain: 'bad/sub' }));
+  assert.throws(() => configureSupabase('[remotes.production]\nproject_id = "x"\n', 'production', settings.projectRef, 'https://a'));
 });
 
 test('stored values merge with the file as it is now, stay private, and ignore unknown names', t => {
   const dir = tempDir(t);
-  const path = secretsPath(dir, 'dev');
-  assert.equal(path, join(dir, '.env.deploy.dev'));
+  const path = secretsPath(dir, 'production');
+  assert.equal(path, join(dir, '.env.deploy.production'));
   writeFileSync(path, 'OTHER=1\nLLM_API_KEY=old\n', { mode: 0o644 });
   const slowCommand = readStored(path);
   updateStored(path, { SUPABASE_DB_PASSWORD: 'only-copy' });
@@ -88,7 +109,7 @@ test('the template ignores the secrets files', t => {
   const dir = tempDir(t);
   copyFileSync(join(template, '.gitignore'), join(dir, '.gitignore'));
   spawnSync('git', ['init', '-q'], { cwd: dir });
-  for (const env of ['dev', 'production']) assert.equal(spawnSync('git', ['check-ignore', '-q', `.env.deploy.${env}`], { cwd: dir }).status, 0);
+  for (const env of ['production', 'staging']) assert.equal(spawnSync('git', ['check-ignore', '-q', `.env.deploy.${env}`], { cwd: dir }).status, 0);
 });
 
 test('pooler URL uses the primary database in session mode on 5432 even when only transaction entries are listed', () => {
@@ -145,9 +166,9 @@ const healthyRoutes = {
 
 function context(t, stored = {}) {
   const root = tempDir(t);
-  const path = secretsPath(root, 'dev');
+  const path = secretsPath(root, 'production');
   if (Object.keys(stored).length) updateStored(path, stored);
-  return { root, repo: 'fresh-app', environment: 'dev', path, stored: readStored(path) };
+  return { root, repo: 'fresh-app', environment: 'production', path, stored: readStored(path) };
 }
 
 test('supabase creates a project only after storing its password, then stores keys and the session pooler URL', async t => {
@@ -155,7 +176,7 @@ test('supabase creates a project only after storing its password, then stores ke
     'GET /v1/projects': () => [],
     'GET /v1/organizations': () => [{ id: 'org-one', slug: 'org-one', name: 'One' }],
     'GET /v1/organizations/org-one': () => ({ plan: 'free' }),
-    'POST /v1/projects': ({ body }) => { assert.ok(readStored(ctx.path).SUPABASE_DB_PASSWORD, 'password stored before create'); assert.equal(body.name, 'fresh-app-dev'); return { ref, name: body.name, status: 'ACTIVE_HEALTHY', region: 'eu-central-1' }; },
+    'POST /v1/projects': ({ body }) => { assert.ok(readStored(ctx.path).SUPABASE_DB_PASSWORD, 'password stored before create'); assert.equal(body.name, 'fresh-app-production'); return { ref, name: body.name, status: 'ACTIVE_HEALTHY', region: 'eu-central-1' }; },
     ...healthyRoutes,
   });
   const ctx = context(t);
@@ -169,7 +190,7 @@ test('supabase creates a project only after storing its password, then stores ke
 
 test('supabase refuses an unowned same-name project, a full Free plan, and a paid plan without cost confirmation', async t => {
   const org = { id: 'org-one', slug: 'org-one', name: 'One' };
-  const foreign = { ref, name: 'fresh-app-dev', status: 'ACTIVE_HEALTHY', region: 'eu-central-1', organization_slug: 'org-one', created_at: '2026-01-01T00:00:00Z' };
+  const foreign = { ref, name: 'fresh-app-production', status: 'ACTIVE_HEALTHY', region: 'eu-central-1', organization_slug: 'org-one', created_at: '2026-01-01T00:00:00Z' };
   supabaseApi(t, { 'GET /v1/projects': () => [foreign], 'GET /v1/organizations': () => [org] });
   await assert.rejects(supabase(context(t, { SUPABASE_DB_PASSWORD: 'leftover' }), { region: 'eu-central-1' }), /no record of creating it/);
 
@@ -185,7 +206,7 @@ test('supabase refuses an unowned same-name project, a full Free plan, and a pai
 
 test('supabase adopts a same-name project it recorded starting, after a lost create response', async t => {
   supabaseApi(t, {
-    'GET /v1/projects': () => [{ ref, name: 'fresh-app-dev', status: 'ACTIVE_HEALTHY', region: 'eu-central-1', organization_slug: 'org-one', created_at: '2026-10-19T15:04:30.375642Z' }],
+    'GET /v1/projects': () => [{ ref, name: 'fresh-app-production', status: 'ACTIVE_HEALTHY', region: 'eu-central-1', organization_slug: 'org-one', created_at: '2026-10-19T15:04:30.375642Z' }],
     'GET /v1/organizations': () => [{ id: 'org-one', name: 'One' }],
     ...healthyRoutes,
   });
@@ -194,12 +215,12 @@ test('supabase adopts a same-name project it recorded starting, after a lost cre
   assert.equal(readStored(ctx.path).SUPABASE_PROJECT_REF, ref);
 });
 
-test('staging CLI prints help, names a bad flag, and refuses to run outside a generated repository', t => {
-  const cli = (...args) => spawnSync(process.execPath, [join(scripts, 'tg.ts'), 'staging', ...args], { cwd: tempDir(t), encoding: 'utf8' });
+test('deploy CLI prints help, names a bad flag, and refuses to run outside a generated repository', t => {
+  const cli = (...args) => spawnSync(process.execPath, [join(scripts, 'tg.ts'), 'deploy', ...args], { cwd: tempDir(t), encoding: 'utf8' });
   assert.equal(cli('--help').status, 0);
   const bad = cli('status', '--regio', 'x');
   assert.equal(bad.status, 1);
-  assert.match(bad.stderr, /Unknown option '--regio'[\s\S]*Usage: tg staging/);
+  assert.match(bad.stderr, /Unknown option '--regio'[\s\S]*Usage: tg deploy/);
   const outside = cli('status');
   assert.equal(outside.status, 1);
   assert.match(outside.stderr, /generated repository root/);
@@ -215,13 +236,13 @@ test('a deploy installs the Langfuse keys only as a pair, and set accepts them',
 });
 
 test('trace-check runs the Langfuse e2e against the configured app with the stored secrets, and refuses until both are ready', () => {
-  const vars = envVars(configureWrangler(wrangler, 'dev', settings).text, 'dev');
+  const vars = envVars(configureWrangler(wrangler, 'production', settings).text, 'production');
   const stored = { SUPABASE_SECRET_KEY: 'sb_secret_value', LANGFUSE_PUBLIC_KEY: 'pk-lf-test', LANGFUSE_SECRET_KEY: 'sk-lf-test' };
   assert.deepEqual(traceCheckEnv(vars, stored), {
-    EXTERNAL_APP: '1', APP_URL: 'https://fresh-app-dev.acme.workers.dev', SUPABASE_URL: `https://${settings.projectRef}.supabase.co`,
+    EXTERNAL_APP: '1', APP_URL: 'https://fresh-app-production.acme.workers.dev', SUPABASE_URL: `https://${settings.projectRef}.supabase.co`,
     SUPABASE_PUBLISHABLE_KEY: settings.publishableKey, ...stored,
   });
   assert.equal(traceCheckEnv({ ...vars, LANGFUSE_BASE_URL: 'https://us.cloud.langfuse.com' }, stored).LANGFUSE_BASE_URL, 'https://us.cloud.langfuse.com');
-  assert.throws(() => traceCheckEnv(vars, { ...stored, LANGFUSE_SECRET_KEY: undefined }), /tg staging set LANGFUSE_SECRET_KEY/);
-  assert.throws(() => traceCheckEnv(envVars(wrangler, 'dev'), stored), /tg staging configure/);
+  assert.throws(() => traceCheckEnv(vars, { ...stored, LANGFUSE_SECRET_KEY: undefined }), /tg deploy set LANGFUSE_SECRET_KEY/);
+  assert.throws(() => traceCheckEnv(envVars(wrangler, 'production'), stored), /tg deploy configure/);
 });
