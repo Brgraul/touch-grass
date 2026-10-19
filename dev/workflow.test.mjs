@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +15,6 @@ import { buildTemplateBundle } from '../skills/touch-grass/scripts/lib/bundle.ts
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const scripts = join(repo, 'skills/touch-grass/scripts');
-const installer = join(repo, 'tools/install.mjs');
 const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
 const git = (cwd, args, options = {}) => {
   const result = spawnSync(realGit, args, { cwd, encoding: 'utf8', ...options });
@@ -263,34 +262,11 @@ test('CLI help, invalid args, read-only status and complete offline fixture', t 
   assert.equal(remoteMain(f), before, 'a rerun never pushes later work');
 });
 
-test('installer handles path spaces, reruns and preserves unrelated existing installs', t => {
-  const f = fixture(t); const installation = join(f.root, 'skills with spaces');
-  const install = () => spawnSync(process.execPath, [installer, '--skills-dir', installation], { encoding: 'utf8' });
-  assert.equal(install().status, 0); assert.equal(lstatSync(join(installation, 'touch-grass')).isSymbolicLink(), true); assert.equal(install().status, 0);
-  rmSync(join(installation, 'touch-grass')); mkdirSync(join(installation, 'touch-grass')); writeFileSync(join(installation, 'touch-grass', 'sentinel'), 'preserve');
-  assert.equal(install().status, 1); assert.equal(readFileSync(join(installation, 'touch-grass', 'sentinel'), 'utf8'), 'preserve');
-  rmSync(join(installation, 'touch-grass'), { recursive: true }); symlinkSync(join(f.root, 'missing'), join(installation, 'touch-grass'));
-  assert.equal(install().status, 1);
-});
-
 test('subprocess failures name the vendor reason, and suppress output marked sensitive', t => {
   const f = fixture(t);
   const failing = ['-e', 'process.stderr.write("fatal: sensitive-sentinel via https://user:pw@example.com/x\\n");process.stdout.write("sensitive-sentinel");process.exit(1)'];
   assert.throws(() => must(process.execPath, failing), error => error.message.includes('fatal: sensitive-sentinel') && !error.message.includes('pw@'));
   assert.throws(() => must(process.execPath, failing, { sensitive: true }), error => !error.message.includes('sensitive-sentinel'));
-});
-
-test('installer runs from a checkout path containing spaces', t => {
-  const f = fixture(t);
-  const checkout = join(f.root, 'checkout with spaces');
-  const copiedInstaller = join(checkout, 'tools/install.mjs');
-  mkdirSync(dirname(copiedInstaller), { recursive: true }); mkdirSync(join(checkout, 'skills/touch-grass/assets'), { recursive: true }); writeFileSync(join(checkout, 'skills/touch-grass/assets/template.bundle'), 'fixture');
-  writeFileSync(join(checkout, 'skills/touch-grass/SKILL.md'), 'fixture');
-  copyFileSync(installer, copiedInstaller);
-  const destination = join(f.root, 'global skills');
-  const result = spawnSync(process.execPath, [copiedInstaller, '--skills-dir', destination], { encoding: 'utf8' });
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(readFileSync(join(destination, 'touch-grass/SKILL.md'), 'utf8'), 'fixture');
 });
 
 test('tracked template symlinks are refused before destination claim', t => {

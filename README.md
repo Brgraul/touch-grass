@@ -38,15 +38,16 @@ To work on the skill itself, clone this repository and link it instead:
 ```sh
 git clone https://github.com/Brgraul/touch-grass.git
 cd touch-grass
-npm run link
+ln -s "$PWD/skills/touch-grass" ~/.claude/skills/touch-grass
 ```
 
-The installer symlinks the folder into `${CODEX_HOME:-~/.codex}/skills` by default, so a `git pull` updates the skill. For Claude Code, run `npm run link -- --skills-dir ~/.claude/skills`. It is rerunnable and preserves unrelated installations. Restart or refresh your agent's skill discovery after installation.
+For Codex, link into `${CODEX_HOME:-~/.codex}/skills` instead. A `git pull` then updates the skill. Restart or refresh your agent's skill discovery after linking.
 
-Run the skill's regression checks without provisioning live resources:
+Run the skill's regression checks without provisioning live resources, and type-check its scripts once `template/` has its dependencies installed:
 
 ```sh
 npm test
+npm run typecheck
 ```
 
 The editable template lives in `template/`. After changing it, stage the changes and rebuild the bundle, then commit both together. A test fails when the bundle is stale.

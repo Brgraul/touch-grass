@@ -14,5 +14,5 @@
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true
   },
-  "include": ["skills/touch-grass/scripts/**/*.ts", "tools/**/*.ts"]
+  "include": ["skills/touch-grass/scripts/**/*.ts", "dev/**/*.ts"]
 }

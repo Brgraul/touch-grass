@@ -3,8 +3,8 @@
   "type": "module",
   "engines": { "node": ">=22.23" },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
-    "bundle": "node tools/build-template-bundle.ts",
-    "link": "node tools/install.mjs"
+    "test": "node --test dev/*.test.mjs",
+    "typecheck": "template/node_modules/.bin/tsc -p tsconfig.json",
+    "bundle": "node dev/bundle.ts"
   }
 }
