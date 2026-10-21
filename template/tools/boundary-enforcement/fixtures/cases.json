@@ -1471,5 +1471,155 @@
       "supabase/config.toml": "[remotes.production.auth]\nsite_url = \"https://app.example.test\"\nadditional_redirect_urls = [\"https://app.example.test/auth/callback\"]\n"
     },
     "expected": []
+  },
+  {
+    "id": "comment-narration",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "// Double the value.\nexport const twice = (value: number) => value * 2;",
+    "expected": [
+      {
+        "rule": "comment-marker",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "comment-todo",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "export const twice = (value: number) => value * 2;\n// TODO: handle negative values\n",
+    "expected": [
+      {
+        "rule": "comment-marker",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "comment-jsdoc",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "/**\n * Doubles a value.\n * @param value the input\n */\nexport function twice(value: number) { return value * 2; }",
+    "expected": [
+      {
+        "rule": "comment-marker",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "comment-block",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "export const twice = (value: number) => /* fast path */ value * 2;",
+    "expected": [
+      {
+        "rule": "comment-marker",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "comment-jsx",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export function Page() { return <div>{/* greeting */}Hello</div>; }",
+    "expected": [
+      {
+        "rule": "comment-marker",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "comment-trailing",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "export const twice = (value: number) => value * 2; // doubles",
+    "expected": [
+      {
+        "rule": "comment-marker",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "comment-marker-later",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "// Doubles the value. WHY: the SDK wants it.\nexport const twice = (value: number) => value * 2;",
+    "expected": [
+      {
+        "rule": "comment-marker",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "comment-ts-expect-error-bare",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "// @ts-expect-error\nexport const twice: number = 'two';",
+    "expected": [
+      {
+        "rule": "comment-marker",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "comment-oxlint-disable-bare",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "// oxlint-disable-next-line no-unused-vars\nconst unused = 1;\nexport const twice = (value: number) => value * 2;",
+    "expected": [
+      {
+        "rule": "comment-marker",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "comment-positive-safety",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "// SAFETY: the literal is a non-empty string.\nexport const name = 'demo' as string;",
+    "expected": []
+  },
+  {
+    "id": "comment-positive-why",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "// WHY: PostgreSQL cannot store NUL.\nexport const storable = (value: string) => !value.includes('\\u0000');",
+    "expected": []
+  },
+  {
+    "id": "comment-positive-reference",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "/// <reference types=\"vite/client\" />\nexport const twice = (value: number) => value * 2;",
+    "expected": []
+  },
+  {
+    "id": "comment-positive-directives",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "// @ts-expect-error the fixture assigns a string to a number on purpose\nexport const twice: number = 'two';\n// oxlint-disable-next-line no-unused-vars -- the fixture keeps an unused binding\nconst unused = 1;",
+    "expected": []
+  },
+  {
+    "id": "comment-positive-lookalikes",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const url = 'https://example.test/a//b';\nexport const pattern = /\\/\\//u;\nexport const text = `/* ${url} */`;\nexport function Page() { return <a href={url}>// not a comment</a>; }",
+    "expected": []
+  },
+  {
+    "id": "comment-outside-src",
+    "kind": "source",
+    "path": "tests/fixtures/demo.ts",
+    "source": "// Narration outside src is not checked.\nexport const twice = (value: number) => value * 2;",
+    "expected": []
   }
 ]

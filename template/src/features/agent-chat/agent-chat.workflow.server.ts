@@ -17,8 +17,7 @@ export const MODEL_STEP_CONFIG = {
   timeout: MODEL_STEP_TIMEOUT,
 } satisfies WorkflowStepConfig;
 
-// A pause or restart rejects the pending step with this prefix. It must reach the engine untouched,
-// or the run would record a failure for an instance that is only suspended.
+// WHY: A Workflows pause or restart rejects the pending step with this prefix, and the engine must receive it untouched or a suspended run records a failure.
 function isEngineControl(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith('Aborting engine:');
 }
@@ -31,7 +30,7 @@ function parseRunPayload(payload: unknown) {
   return parsed.data;
 }
 
-// Workflows refuses a second instance with the same ID, which is how a run never gets two instances.
+// WHY: Workflows refuses a second instance with the same ID, which is how a run never gets two instances.
 export function workflowRuns(binding: Pick<Workflow, 'create' | 'get'>): WorkflowRuns {
   return {
     async start(id) {
@@ -47,7 +46,6 @@ export function workflowRuns(binding: Pick<Workflow, 'create' | 'get'>): Workflo
   };
 }
 
-// Step names come only from the model call count, so a replay matches every saved result by name.
 export class DurableModel implements Model {
   private calls = 0;
   private previous: SavedModelResponse | undefined;

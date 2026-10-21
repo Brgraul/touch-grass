@@ -65,6 +65,7 @@ export const rules = [
   { id: 'brand-cast', check: 'lint', text: 'Brands come from parsers. Brand assertions occur only in platform, schemas or repositories.' },
   { id: 'no-reexport', check: 'lint', text: 'Application modules contain no re-export statements or barrel files.' },
   { id: 'styling', check: 'lint', text: 'Components use Tailwind utilities and theme tokens. No raw palette colors, white or black, arbitrary color values, hex literals or literal inline styles.' },
+  { id: 'comment-marker', check: 'lint', text: 'Comments in src/ start with SAFETY: on a cast, WHY: for a constraint from an SDK, PostgreSQL or an external API, or a tool directive. Other comments are deleted or encoded as a type, test or lint rule.' },
   { id: 'banned-package', check: 'check-repo', text: 'No ESLint, second global state manager or dependency injection container.' },
   { id: 'version-pin', check: 'check-repo', text: 'Every direct dependency and the package manager are pinned to exact versions. CLI tools are local dependencies.' },
   { id: 'forbidden-file', check: 'check-repo', text: 'No Tailwind, PostCSS or ESLint config and no stylesheet except src/styles/app.css.' },
@@ -256,6 +257,17 @@ export const fixtureExpectations = {
     "styling-concat-conditional",
     "styling-template-constant",
     "styling-join"
+  ],
+  "comment-marker": [
+    "comment-narration",
+    "comment-todo",
+    "comment-jsdoc",
+    "comment-block",
+    "comment-jsx",
+    "comment-trailing",
+    "comment-marker-later",
+    "comment-ts-expect-error-bare",
+    "comment-oxlint-disable-bare"
   ],
   "banned-package": [
     "repo-eslint",

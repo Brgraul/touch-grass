@@ -75,6 +75,7 @@ Emitted browser chunks may also contain the dependency closure of the browser pa
 | brand-cast | lint | Brands come from parsers. Brand assertions occur only in platform, schemas or repositories. |
 | no-reexport | lint | Application modules contain no re-export statements or barrel files. |
 | styling | lint | Components use Tailwind utilities and theme tokens. No raw palette colors, white or black, arbitrary color values, hex literals or literal inline styles. |
+| comment-marker | lint | Comments in src/ start with SAFETY: on a cast, WHY: for a constraint from an SDK, PostgreSQL or an external API, or a tool directive. Other comments are deleted or encoded as a type, test or lint rule. |
 | banned-package | check-repo | No ESLint, second global state manager or dependency injection container. |
 | version-pin | check-repo | Every direct dependency and the package manager are pinned to exact versions. CLI tools are local dependencies. |
 | forbidden-file | check-repo | No Tailwind, PostCSS or ESLint config and no stylesheet except src/styles/app.css. |

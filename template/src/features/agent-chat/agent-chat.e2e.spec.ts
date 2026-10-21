@@ -88,7 +88,7 @@ test('the cron trigger starts a run whose dispatch was lost', async ({ page }) =
     await page.goto(`/chat/${conversationId}`)
     await expect(page.getByText('Ready to help.')).toBeHidden()
 
-    // workerd serves this route locally and runs the Worker's `scheduled` export, as the deployed cron would.
+    // WHY: workerd serves this route locally and runs the Worker's `scheduled` export, as the deployed cron would.
     const sweep = await page.request.get('/cdn-cgi/local/scheduled?format=json')
 
     expect(await sweep.json()).toMatchObject({ outcome: 'ok' })

@@ -4,7 +4,6 @@ import { NoopTrace, withTrace } from '@openai/agents';
 import { z } from 'zod';
 import { classifyProviderError, createModelProvider, type ProviderErrorKind } from './model.server';
 
-// OpenAI error responses, replayed by a local server so the pinned client and SDK raise their own error objects.
 const recorded = new Map([
   ['rate-limit', { status: 429, body: { error: { message: 'Rate limit reached for requests', type: 'requests', param: null, code: 'rate_limit_exceeded' } } }],
   ['server-error', { status: 500, body: { error: { message: 'The server had an error while processing your request.', type: 'server_error', param: null, code: null } } }],

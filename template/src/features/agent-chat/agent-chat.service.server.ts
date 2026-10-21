@@ -120,7 +120,6 @@ function attemptResult(attempt: Attempt) {
   }
 }
 
-// Tracing runs inside the Workflow steps, so a replay that reuses a saved step sends nothing again.
 export function createRunner(source: unknown) {
   const settings = parseEnv(source);
   const repo = createChatRepository(source);
@@ -134,7 +133,7 @@ export function createRunner(source: unknown) {
 
     try {
       const model = await provider.getModel();
-      // A step runs outside the SDK run's trace context, and the model always opens a span.
+      // WHY: The SDK model always opens a span, and a Workflow step runs outside the SDK run's trace context.
       response = await withTrace(new NoopTrace(), () => model.getResponse({ ...request, signal, tracing: false }));
     } catch (error) {
       return outcomeFromError(error);
@@ -159,14 +158,13 @@ export function createRunner(source: unknown) {
       return commit;
     },
     async fail(run: StartedRun, failure: RunFailure) {
-      const result = await repo.fail(run.input.runId, failure);
+      const saved = await repo.fail(run.input.runId, failure);
 
-      // The saved failure can differ from the one passed in, as when the deadline passed first.
-      if (!('kind' in result) && result.state === 'failed') await traceRun(run, { error: JSON.stringify(result.failure) });
+      if (!('kind' in saved) && saved.state === 'failed') await traceRun(run, { error: JSON.stringify(saved.failure) });
 
-      return result;
+      return saved;
     },
-    // Throwing tells Workflows to retry the model step; every other outcome is saved as the step result.
+    // WHY: Throwing tells Workflows to retry the model step; every other outcome is saved as the step result.
     async callModel(run: RunInput, step: number, request: ModelRequest): Promise<ModelOutcome> {
       const startedAt = Date.now();
       const attempt = await attemptCall(request);

@@ -16,7 +16,6 @@ export const requestKey = z.uuid().brand<'RequestKey'>()
 
 export const instant = z.iso.datetime({ offset: true }).brand<'IsoInstant'>()
 
-// A cursor is base64url JSON of the last item's sort key, as agent_chat.cursor_encode writes it.
 const cursorKey = z.tuple([z.iso.datetime({ offset: true }), z.uuid()])
 
 function decodesToSortKey(cursor: string) {

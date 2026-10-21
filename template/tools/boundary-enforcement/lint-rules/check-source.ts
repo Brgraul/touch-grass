@@ -60,6 +60,34 @@ const modelAdapter = 'src/platform/model.server.ts';
 
 const reactQueryMutation = 'import:@tanstack/react-query#useMutation';
 
+const approvedComment = /^(?:\/\/\/\s*<reference\b|\/[/*]\**\s*(?:SAFETY:\s*\S|WHY:\s*\S|@ts-expect-error\b:?\s*\S|oxlint-disable[\w-]*\s[^\n]*\s--\s+\S))/;
+
+const commentMessage = 'Delete this comment, or encode what it says as a type, test or lint rule. Prefix SAFETY: on a cast, or WHY: for a constraint from an SDK, PostgreSQL or an external API';
+
+const commentText = /\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g;
+
+function unapprovedComments(parsed: ts.SourceFile): Set<number> {
+  const positions = new Set<number>();
+
+  const visit = (node: ts.Node) => {
+    if (ts.isJSDoc(node)) return;
+
+    if (node.kind <= ts.SyntaxKind.LastToken) {
+      for (const match of parsed.text.slice(node.pos, node.getStart(parsed)).matchAll(commentText)) {
+        if (!approvedComment.test(match[0])) positions.add(node.pos + match.index);
+      }
+
+      return;
+    }
+
+    for (const child of node.getChildren(parsed)) visit(child);
+  };
+
+  visit(parsed);
+
+  return positions;
+}
+
 export function checkSource(path: string, source: string): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const kind = path.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
@@ -206,6 +234,12 @@ export function checkSource(path: string, source: string): Diagnostic[] {
   };
 
   visit(parsed);
+
+  if (path.startsWith('src/') && path !== 'src/routeTree.gen.ts' && path !== 'src/platform/database.types.ts') {
+    for (const position of unapprovedComments(parsed)) {
+      diagnostics.push({ rule: 'comment-marker', path, line: parsed.getLineAndCharacterOfPosition(position).line + 1, message: commentMessage });
+    }
+  }
 
   return diagnostics;
 }

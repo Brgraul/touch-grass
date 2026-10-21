@@ -3,7 +3,7 @@ import { useHydrated } from "@tanstack/react-router"
 import { cn } from "@/components/ui/cn"
 
 function Input({ className, type, readOnly, ...props }: React.ComponentProps<"input">) {
-  // Text typed before hydration is lost when React takes over a controlled field.
+  // WHY: Text typed before hydration is lost when React takes over a controlled field.
   const hydrated = useHydrated()
 
   return (

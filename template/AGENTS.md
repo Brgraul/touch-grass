@@ -7,6 +7,7 @@
 - Database definitions live in `supabase/schemas/<owner>/`. Copy the account access pattern.
 - Keep feature tests, including E2E, in the feature directory.
 - Prefer meaningful E2E and integration tests over trivial unit tests.
+- A comment in `src/` starts with `SAFETY:` for a cast, `WHY:` for a constraint from an SDK, PostgreSQL, or an external API, or is a tool directive. Delete any other comment, or encode it as a type, test, or lint rule.
 - Before reporting completion, run `pnpm check:fast`, `pnpm typecheck`, and the changed features' tests, and fix every failure.
 
 ## Skills

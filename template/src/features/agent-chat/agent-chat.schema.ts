@@ -7,8 +7,7 @@ export const BLOCK_SCHEMA_VERSION = 1;
 
 const bytes = (value: unknown) => new TextEncoder().encode(typeof value === 'string' ? value : JSON.stringify(value)).byteLength;
 
-// PostgreSQL cannot store NUL, and JSON cannot carry a lone UTF-16 surrogate. In a `u` regex a paired surrogate
-// is one code point outside this range, so only lone surrogates match.
+// WHY: PostgreSQL cannot store NUL and JSON cannot carry a lone UTF-16 surrogate, and in a `u` regex only a lone surrogate matches this range.
 const LONE_SURROGATE = /[\uD800-\uDFFF]/gu;
 
 function storableJson(value: JsonValue): JsonValue {
@@ -128,7 +127,7 @@ const sdkMessage = z.object({ type: z.literal('message'), role: z.literal('assis
 
 const sdkCall = z.object({ type: z.literal('function_call'), callId: toolCallId, name: z.string(), arguments: z.string() });
 
-// The SDK hands a tool's string result back as a text output item.
+// WHY: The SDK hands a tool's string result back as a text output item.
 const sdkTextOutput = z.object({ type: z.literal('text'), text: z.string() }).transform(({ text }) => text);
 
 const sdkResult = z.object({ type: z.literal('function_call_result'), callId: toolCallId, output: z.union([z.string(), sdkTextOutput, jsonValue]) });
@@ -140,8 +139,6 @@ function parseJson(value: string) {
   catch { return { success: false } as const; }
 }
 
-// Unstorable characters in model output are replaced rather than rejected, so they never fail a run,
-// and a replay of the same saved response stores the same blocks.
 export const blocksFromAgentItems = z.array(agentItemSchema).transform((items) => items.flatMap<ContentBlock>((item) => {
   switch (item.type) {
     case 'message': return item.content.map((part) => ({ kind: 'text', text: part.text }));
@@ -154,7 +151,7 @@ export const blocksFromAgentItems = z.array(agentItemSchema).transform((items) =
     case 'function_call_result': {
       const parsed = typeof item.output === 'string' ? parseJson(item.output) : { success: true, data: item.output } as const;
 
-      // Tools return JSON, so text that is not JSON is the SDK's own message for unparsable arguments.
+      // WHY: Our tools return JSON, so a text result that is not JSON is the SDK's own message for unparsable arguments.
       if (!parsed.success) return [{ kind: 'tool_result', callId: item.callId, output: item.output, isError: true }];
       const output = parsed.data;
       const isError = typeof output === 'object' && output !== null && !Array.isArray(output) && 'error' in output;

@@ -20,7 +20,6 @@ export function useIdempotentMutation<Input, Result>(spec: MutationSpec<Input, R
     },
   })
 
-  // A failed send resolves to undefined. Callers render the failure from `isError`, so nothing rejects unhandled.
   const submit = (input: Input) => mutateAsync(input).catch(() => undefined)
 
   return { ...mutation, submit }

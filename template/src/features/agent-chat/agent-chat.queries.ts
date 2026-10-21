@@ -25,8 +25,6 @@ function hasActiveRun(read: ConversationReadResult | undefined) {
 
 class TransientReadError extends Error {}
 
-// A failed poll throws while the cache holds a good read, so TanStack Query keeps that data and the
-// interval keeps running. An error value would replace the data and end polling.
 export const conversationQuery = (
   user: UserId,
   conversationId: ConversationId,

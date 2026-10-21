@@ -4,7 +4,7 @@ import { conversationQuery, type ConversationReadResult } from './agent-chat.que
 import { readConversationSchema } from './agent-chat.schema'
 import { conversationId, userId } from '@/platform/ids'
 
-// Query Core skips refetch intervals when it believes it runs on a server, so the test must look like a browser before it loads.
+// WHY: Query Core skips refetch intervals when it believes it runs on a server, so the test must look like a browser before it loads.
 vi.hoisted(() => {
   Object.assign(globalThis, { window: globalThis })
 })
