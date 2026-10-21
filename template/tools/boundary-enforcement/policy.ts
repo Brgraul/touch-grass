@@ -15,35 +15,48 @@ export const compositionRoot = 'src/server.ts';
 
 export const pureRoles = ['schema', 'model', 'tools', 'agent', 'domain'] as const;
 
+// Pure modules may import these values from the agent SDK: definitions and the error classes that outcome classification matches. Everything else comes in as a type.
+export const pureAgentExports = ['Agent', 'tool', 'handoff', 'AgentsError', 'GuardrailExecutionError', 'InputGuardrailTripwireTriggered', 'InvalidToolInputError', 'InvalidToolOutputError', 'MaxTurnsExceededError', 'ModelBehaviorError', 'ModelRefusalError', 'ModelTimeoutError', 'OutputGuardrailTripwireTriggered', 'SystemError', 'ToolCallError', 'ToolInputGuardrailTripwireTriggered', 'ToolOutputGuardrailTripwireTriggered', 'ToolTimeoutError', 'UserError'];
+
+// Roles whose modules can reach the browser. They import only browser packages, never a server entry of one.
+export const clientRoles = ['route', 'server-route', 'ui', 'queries', 'components', 'layouts', 'platform-client', 'bootstrap'] as const;
+
+export const testModule = '\\.(?:test|spec)\\.tsx?$';
+
+// Files outside every role: tests, the generated route tree and declaration files.
+export const unownedModule = `${testModule}|^src/routeTree\\.gen\\.ts$|\\.d\\.ts$`;
+
+export const ciCommands = ['pnpm check:fast', 'pnpm typecheck', 'pnpm test', 'pnpm check:bundle'];
+
 export const privateEnvironmentNames = ['SUPABASE_SECRET_KEY', 'LLM_API_KEY', 'LANGFUSE_SECRET_KEY'];
 
 export const bundleSentinel = 'TOUCH_GRASS_SERVER_SECRET_SENTINEL_4b8ae730';
-
-export const brandNames = ['UserId', 'EnvironmentId', 'ConversationId', 'RunId', 'TurnId', 'RequestKey', 'Instant', 'PageCursor', 'ToolCallId'];
 
 export const bannedPackages = ['eslint', '@eslint/', 'zustand', 'redux', '@reduxjs/', 'jotai', 'mobx', 'valtio', 'recoil', 'inversify', 'tsyringe'];
 
 export const ignoredDirectories = ['node_modules', '.git', '.wrangler', 'dist', 'coverage', 'test-results', 'playwright-report'];
 
+const featureModule = (suffix: string) => `^src/features/[^/]+/[^/]+\\.${suffix}\\.ts$`;
+
 export const roles = [
-  { id: 'route', path: 'src/routes/.*\\.tsx$', owns: 'URLs, params, loaders, redirects, composing feature UI', never: 'Direct transport, domain decisions, persistence', allows: 'Feature UI, queries and schemas; layouts; components; browser packages' },
-  { id: 'server-route', path: 'src/routes/.*\\.ts$', owns: 'Server route handlers', never: 'Feature rules or persistence', allows: 'platform/auth.server.ts; browser packages' },
-  { id: 'ui', path: 'src/features/[^/]+/ui/', owns: 'Rendering, interaction, ephemeral state', never: 'Fetching, persistence, transport', allows: 'Components; own UI, queries and schemas; browser packages' },
-  { id: 'queries', path: '\\.queries\\.ts$', owns: 'Query keys, options, polling, mutations and invalidation', never: 'Domain decisions', allows: 'Own functions and schemas; platform/mutations.ts; @tanstack/react-query' },
-  { id: 'functions', path: '\\.functions\\.ts$', owns: 'Parse input, resolve actor, delegate', never: 'Ownership checks or domain decisions', allows: 'Own schema, service or repository; platform/auth.server.ts; @tanstack/react-start' },
-  { id: 'schema', path: '\\.schema\\.ts$', owns: 'Client-safe runtime contracts and inferred types', never: 'Runtime implementations or SQL', allows: 'Other schemas' },
-  { id: 'service', path: '\\.service\\.server\\.ts$', owns: 'Server use cases and background processes', never: 'UI, transport or Workflow steps', allows: 'Own schema, model, agent and repository; other schemas; domain; platform; SDK' },
-  { id: 'model', path: '\\.model\\.ts$', owns: 'Pure domain decisions, limits and outcome classification', never: 'I/O or transactional rules', allows: 'Own schema, model, tools and agent; other schemas; pure domain; SDK definitions and types' },
-  { id: 'tools', path: '\\.tools\\.ts$', owns: 'Pure deterministic tools', never: 'I/O', allows: 'Own schema, model, tools and agent; other schemas; pure domain; SDK definitions and types' },
-  { id: 'agent', path: '\\.agent\\.ts$', owns: 'SDK agent definition, instructions and tools', never: 'I/O', allows: 'Own schema, model, tools and agent; other schemas; pure domain; SDK definitions and types' },
-  { id: 'repo', path: '\\.repo\\.server\\.ts$', owns: 'Database routine calls and row parsing', never: 'Domain decisions', allows: 'Own schema; platform/supabase.server.ts; platform/database.types.ts' },
-  { id: 'workflow', path: '\\.workflow\\.server\\.ts$', owns: 'Durability, step names, retries and payload parsing', never: 'Domain decisions', allows: 'Own service, model, agent and schema; SDK; cloudflare:workers' },
-  { id: 'components', path: 'src/components/', owns: 'Generic UI primitives and patterns', never: 'Feature knowledge or transport', allows: 'Other components; browser packages' },
-  { id: 'layouts', path: 'src/layouts/', owns: 'Application shell and navigation', never: 'Persistence or transport', allows: 'Components; feature UI and queries; browser packages' },
-  { id: 'domain', path: 'src/domain/', owns: 'Shared business capabilities used by multiple features', never: 'Feature imports', allows: 'Same domain; SDK definitions and types' },
-  { id: 'platform-client', path: 'src/platform/(ids|mutations)\\.ts$', owns: 'Shared identities and client mutation mechanism', never: 'Feature knowledge', allows: 'Other client-safe platform modules; browser packages' },
-  { id: 'platform', path: 'src/platform/', owns: 'Environment, Supabase, auth, model adapter, tracing and logging', never: 'Feature knowledge', allows: 'Platform; server and browser packages' },
-  { id: 'bootstrap', path: 'src/(router|client|start)\\.tsx?$', owns: 'Framework bootstrap and one QueryClient per request', never: 'Feature knowledge', allows: 'Generated route tree; browser packages' },
+  { id: 'route', path: '^src/routes/.*\\.tsx$', owns: 'URLs, params, loaders, redirects, composing feature UI', never: 'Direct transport, domain decisions, persistence', allows: 'Feature UI, queries and schemas; layouts; components; browser packages' },
+  { id: 'server-route', path: '^src/routes/.*\\.ts$', owns: 'Server route handlers', never: 'Feature rules or persistence', allows: 'platform/auth.server.ts; browser packages' },
+  { id: 'ui', path: '^src/features/[^/]+/ui/', owns: 'Rendering, interaction, ephemeral state', never: 'Fetching, persistence, transport', allows: 'Components; own UI, queries and schemas; browser packages' },
+  { id: 'queries', path: featureModule('queries'), owns: 'Query keys, options, polling, mutations and invalidation', never: 'Domain decisions', allows: 'Own functions and schemas; platform/mutations.ts; @tanstack/react-query' },
+  { id: 'functions', path: featureModule('functions'), owns: 'Parse input, resolve actor, delegate', never: 'Ownership checks or domain decisions', allows: 'Own schema, service or repository; platform/auth.server.ts; @tanstack/react-start' },
+  { id: 'schema', path: featureModule('schema'), owns: 'Client-safe runtime contracts and inferred types', never: 'Runtime implementations or SQL', allows: 'Other schemas' },
+  { id: 'service', path: featureModule('service\\.server'), owns: 'Server use cases and background processes', never: 'UI, transport or Workflow steps', allows: 'Own schema, model, agent and repository; other schemas; domain; platform; SDK' },
+  { id: 'model', path: featureModule('model'), owns: 'Pure domain decisions, limits and outcome classification', never: 'I/O or transactional rules', allows: 'Own schema, model, tools and agent; other schemas; pure domain; SDK definitions and types' },
+  { id: 'tools', path: featureModule('tools'), owns: 'Pure deterministic tools', never: 'I/O', allows: 'Own schema, model, tools and agent; other schemas; pure domain; SDK definitions and types' },
+  { id: 'agent', path: featureModule('agent'), owns: 'SDK agent definition, instructions and tools', never: 'I/O', allows: 'Own schema, model, tools and agent; other schemas; pure domain; SDK definitions and types' },
+  { id: 'repo', path: featureModule('repo\\.server'), owns: 'Database routine calls and row parsing', never: 'Domain decisions', allows: 'Own schema; platform/supabase.server.ts; platform/database.types.ts' },
+  { id: 'workflow', path: featureModule('workflow\\.server'), owns: 'Durability, step names, retries and payload parsing', never: 'Domain decisions', allows: 'Own service, model, agent and schema; SDK; cloudflare:workers' },
+  { id: 'components', path: '^src/components/', owns: 'Generic UI primitives and patterns', never: 'Feature knowledge or transport', allows: 'Other components; browser packages' },
+  { id: 'layouts', path: '^src/layouts/', owns: 'Application shell and navigation', never: 'Persistence or transport', allows: 'Components; feature UI and queries; browser packages' },
+  { id: 'domain', path: '^src/domain/[^/]+/', owns: 'Shared business capabilities used by multiple features, one directory per capability', never: 'Feature imports or modules directly under src/domain', allows: 'Same domain; SDK definitions and types' },
+  { id: 'platform-client', path: '^src/platform/(?:ids|mutations)\\.ts$', owns: 'Shared identities and client mutation mechanism', never: 'Feature knowledge', allows: 'Other client-safe platform modules; browser packages' },
+  { id: 'platform', path: '^src/platform/(?!(?:ids|mutations)\\.ts$)', owns: 'Environment, Supabase, auth, model adapter, tracing and logging', never: 'Feature knowledge', allows: 'Platform; server and browser packages' },
+  { id: 'bootstrap', path: '^src/(?:router|client|start)\\.tsx?$', owns: 'Framework bootstrap and one QueryClient per request', never: 'Feature knowledge', allows: 'Generated route tree; browser packages' },
   { id: 'composition', path: '^src/server\\.ts$', owns: 'Runtime wiring and entrypoint exports', never: 'Domain rules', allows: 'Everything it wires' },
 ] as const;
 
@@ -53,14 +66,17 @@ export type Diagnostic = { rule: string; path: string; message: string; line?: n
 
 export const rules = [
   { id: 'ownership', check: 'dependency-cruiser', text: 'Import only the modules and packages allowed for the source role. Cross-feature imports reach only schemas.' },
-  { id: 'package', check: 'dependency-cruiser', text: 'Client roles import only browser packages.' },
+  { id: 'test-import', check: 'dependency-cruiser', text: 'Application modules never import test or spec files or anything under tests/.' },
+  { id: 'package', check: 'dependency-cruiser', text: 'Client roles import only browser packages, and never their server, SSR or plugin entry points.' },
   { id: 'feature-cycle', check: 'dependency-cruiser', text: 'Feature dependencies have no cycles.' },
   { id: 'composition-root', check: 'dependency-cruiser', text: 'Only src/server.ts wires feature Workflows into runtime entrypoints. Platform has no feature knowledge.' },
   { id: 'client-reachability', check: 'check-client-bundle', text: 'Every emitted browser chunk excludes server modules, server packages, private environment names and the planted secret sentinel.' },
-  { id: 'pure-module', check: 'lint', text: 'Schemas, models, tools, agents and pure domain modules perform no I/O and read no clocks, randomness or runtime.' },
+  { id: 'file-role', check: 'lint', text: 'Every module under src matches exactly one role. Only tests, declaration files and the generated route tree have none.' },
+  { id: 'pure-module', check: 'lint', text: 'Schemas, models, tools, agents and pure domain modules perform no I/O and read no clocks, randomness or runtime. They import only agent definitions, SDK error classes and types.' },
   { id: 'client-data-path', check: 'lint', text: 'Client views never fetch. Query functions belong to queries modules. Only platform/mutations.ts calls useMutation.' },
+  { id: 'server-function', check: 'lint', text: 'Only functions modules create server functions or server middleware.' },
   { id: 'model-adapter', check: 'lint', text: 'Only platform/model.server.ts imports openai or constructs the model provider.' },
-  { id: 'env-access', check: 'lint', text: 'Only platform/env.server.ts reads environment fields. The composition root reads only the Workflow binding.' },
+  { id: 'env-access', check: 'lint', text: 'Only platform/env.server.ts reads environment fields or copies the environment. The composition root reads only the Workflow binding.' },
   { id: 'test-sign-in', check: 'lint', text: 'Only tests/fixtures/test-users.ts calls password sign-in or auth.admin.' },
   { id: 'brand-cast', check: 'lint', text: 'Brands come from parsers. Brand assertions occur only in platform, schemas or repositories.' },
   { id: 'no-reexport', check: 'lint', text: 'Application modules contain no re-export statements or barrel files.' },
@@ -70,6 +86,7 @@ export const rules = [
   { id: 'forbidden-file', check: 'check-repo', text: 'No Tailwind, PostCSS or ESLint config and no stylesheet except src/styles/app.css.' },
   { id: 'migration-ledger', check: 'check-repo', text: 'Applied migrations never change or disappear. New migrations sort after the base branch ledger.' },
   { id: 'auth-urls', check: 'check-repo', text: 'Each wrangler.jsonc environment APP_URL matches the site_url and callback URL in its [remotes.<environment>.auth] block of supabase/config.toml.' },
+  { id: 'ci-gates', check: 'check-repo', text: `The pull request workflow runs ${ciCommands.map(command => `\`${command}\``).join(', ')}.` },
   { id: 'generated-architecture', check: 'check-repo', text: 'ARCHITECTURE.md exactly matches the policy renderer.' },
   { id: 'vendored-skill', check: 'check-repo', text: 'Each skill in skills-lock.json is pinned to a commit and matches its recorded upstream hash.' },
   { id: 'database-types', check: 'pnpm check', text: 'Database types are regenerated after the isolated reset and fail on a diff.' },
@@ -83,9 +100,12 @@ export const rules = [
 ] as const;
 
 export function roleOf(path: string): Role | undefined {
-  if (/\.(test|spec)\.tsx?$/.test(path) || path === 'src/routeTree.gen.ts' || path.endsWith('.d.ts')) return undefined;
+  if (new RegExp(unownedModule).test(path)) return undefined;
+  const matches = roles.filter(role => new RegExp(role.path).test(path));
 
-  return roles.find(role => new RegExp(role.path).test(path))?.id;
+  if (matches.length > 1) throw new Error(`${path} matches the roles ${matches.map(role => role.id).join(' and ')}. Role paths must not overlap`);
+
+  return matches[0]?.id;
 }
 
 export function isPure(path: string): boolean {
@@ -117,28 +137,29 @@ function packages(names: readonly string[]): string {
 }
 
 export function allowedTargets(role: Role, feature = '[^/]+'): string {
-  const own = `src/features/${escaped(feature)}/`;
-  const schemas = 'src/features/[^/]+/[^/]+\\.schema\\.ts$';
+  const own = `^src/features/${escaped(feature)}/`;
+  const schemas = '^src/features/[^/]+/[^/]+\\.schema\\.ts$';
+  const pureDomain = '^src/domain/[^/]+/(?!.*\\.server\\.ts$)';
   const common = ['^src/platform/ids\\.ts$', packages(['zod'])];
   const browser = packages(browserPackages);
   const agents = packages(['@openai/agents']);
   const ownRole = (suffixes: string) => `${own}[^/]+\\.(?:${suffixes})\\.ts$`;
 
   const choices: Record<Role, readonly string[]> = {
-    route: ['src/features/[^/]+/(?:ui/|[^/]+\\.(?:queries|schema)\\.ts$)', '^src/(?:components|layouts)/', browser, '^src/styles/app\\.css(?:\\?url)?$'],
+    route: ['^src/features/[^/]+/(?:ui/|[^/]+\\.(?:queries|schema)\\.ts$)', '^src/(?:components|layouts)/', browser, '^src/styles/app\\.css(?:\\?url)?$'],
     'server-route': ['^src/platform/auth\\.server\\.ts$', browser],
     ui: ['^src/components/', `${own}ui/`, ownRole('queries|schema'), browser],
     queries: [ownRole('functions|schema'), '^src/platform/mutations\\.ts$', packages(['@tanstack/react-query'])],
     functions: [ownRole('schema|service\\.server|repo\\.server'), '^src/platform/auth\\.server\\.ts$', packages(['@tanstack/react-start'])],
     schema: [schemas],
-    service: [ownRole('schema|model|agent|repo\\.server'), schemas, '^src/(?:domain|platform)/', agents],
-    model: [ownRole('schema|model|tools|agent'), schemas, '^src/domain/(?!.*\\.server\\.ts$)', agents],
-    tools: [ownRole('schema|model|tools|agent'), schemas, '^src/domain/(?!.*\\.server\\.ts$)', agents],
-    agent: [ownRole('schema|model|tools|agent'), schemas, '^src/domain/(?!.*\\.server\\.ts$)', agents],
+    service: [ownRole('schema|model|agent|repo\\.server'), schemas, '^src/domain/[^/]+/', '^src/platform/', agents],
+    model: [ownRole('schema|model|tools|agent'), schemas, pureDomain, agents],
+    tools: [ownRole('schema|model|tools|agent'), schemas, pureDomain, agents],
+    agent: [ownRole('schema|model|tools|agent'), schemas, pureDomain, agents],
     repo: [ownRole('schema'), '^src/platform/(?:supabase\\.server|database\\.types)\\.ts$'],
     workflow: [ownRole('service\\.server|model|agent|schema'), agents, '^cloudflare:workers$'],
     components: ['^src/components/', browser],
-    layouts: ['^src/components/', 'src/features/[^/]+/(?:ui/|[^/]+\\.queries\\.ts$)', browser],
+    layouts: ['^src/components/', '^src/features/[^/]+/(?:ui/|[^/]+\\.queries\\.ts$)', browser],
     domain: [`^src/domain/${escaped(feature)}/`, agents],
     'platform-client': ['^src/platform/(?:ids|mutations)\\.ts$', browser],
     platform: ['^src/platform/', '^(?:node_modules/|.*?/node_modules/|cloudflare:|node:)'],
@@ -149,31 +170,41 @@ export function allowedTargets(role: Role, feature = '[^/]+'): string {
   return [...common, ...choices[role]].map(choice => `(?:${choice})`).join('|');
 }
 
+const featureRoles: readonly Role[] = ['ui', 'queries', 'functions', 'schema', 'service', 'model', 'tools', 'agent', 'repo', 'workflow'];
+
+// A browser package's server, SSR or build entry: `@tanstack/react-start/server`, `react-dom/server`, `@tanstack/react-router/ssr/server`.
+const serverEntry = `(?:^|/)node_modules/(?:${browserPackages.map(escaped).join('|')})/.*(?:server|ssr-|plugin/)`;
+
 export function dependencyRules(features: readonly string[], domains: readonly string[] = []) {
   const result = [];
-  const excluded = '\\.(?:test|spec)\\.tsx?$|^src/routeTree\\.gen\\.ts$|\\.d\\.ts$';
 
   for (const role of roles) {
     if (role.id === 'composition') continue;
-    const owners = ['ui', 'queries', 'functions', 'schema', 'service', 'model', 'tools', 'agent', 'repo', 'workflow'].includes(role.id) ? features : role.id === 'domain' ? domains : [''];
+    const owners = featureRoles.includes(role.id) ? features : role.id === 'domain' ? domains : [''];
 
     for (const owner of owners) {
-      const from = owner ? `^src/${role.id === 'domain' ? 'domain' : 'features'}/${escaped(owner)}/.*` : role.path;
-      const path = owner ? `(?=${from})(?=.*${role.path})` : role.path;
-      const roleExclude = role.id === 'platform' ? `${excluded}|^src/platform/(?:ids|mutations)\\.ts$` : excluded;
-      result.push({ name: `ownership-${role.id}${owner ? `-${owner}` : ''}`, severity: 'error', from: { path, pathNot: roleExclude }, to: { pathNot: allowedTargets(role.id, owner) } });
+      const path = owner ? `(?=^src/${role.id === 'domain' ? 'domain' : 'features'}/${escaped(owner)}/)${role.path}` : role.path;
+      result.push({ name: `ownership-${role.id}${owner ? `-${owner}` : ''}`, severity: 'error', from: { path, pathNot: unownedModule }, to: { pathNot: allowedTargets(role.id, owner) } });
     }
   }
 
-  result.push({ name: 'package', severity: 'error', from: { path: '^src/(?:routes|components|layouts)/|^src/features/[^/]+/ui/|\\.queries\\.ts$|^src/platform/(?:ids|mutations)\\.ts$', pathNot: excluded }, to: { path: '(?:^|/)node_modules/', pathNot: packages([...browserPackages, 'zod']) } });
-  result.push({ name: 'composition-root', severity: 'error', from: { path: '^src/platform/', pathNot: excluded }, to: { path: '^src/features/' } });
-  result.push({ name: 'feature-cycle', severity: 'error', from: { path: '^src/features/', pathNot: excluded }, to: { circular: true, path: '^src/features/' } });
-  result.push({ name: 'unresolved-import', severity: 'error', from: { path: '^src/', pathNot: excluded }, to: { couldNotResolve: true, pathNot: '^cloudflare:' } });
+  const client = roles.flatMap(role => clientRoles.some(id => id === role.id) ? [role.path] : []).join('|');
+  result.push({ name: 'package', severity: 'error', from: { path: client, pathNot: unownedModule }, to: { path: '(?:^|/)node_modules/', pathNot: packages([...browserPackages, 'zod']) } });
+  result.push({ name: 'package', severity: 'error', from: { path: client, pathNot: unownedModule }, to: { path: serverEntry } });
+  result.push({ name: 'test-import', severity: 'error', from: { path: '^src/', pathNot: unownedModule }, to: { path: `${testModule}|^tests/` } });
+  result.push({ name: 'composition-root', severity: 'error', from: { path: '^src/platform/', pathNot: unownedModule }, to: { path: '^src/features/' } });
+  result.push({ name: 'feature-cycle', severity: 'error', from: { path: '^src/features/', pathNot: unownedModule }, to: { circular: true, path: '^src/features/' } });
+  result.push({ name: 'unresolved-import', severity: 'error', from: { path: '^src/', pathNot: unownedModule }, to: { couldNotResolve: true, pathNot: '^cloudflare:' } });
 
   return result;
 }
 
 export const fixtureExpectations = {
+  "file-role": [
+    "file-role-feature-helper",
+    "file-role-top-level",
+    "file-role-domain-top-level"
+  ],
   "pure-module": [
     "pure-fetch",
     "pure-clock",
@@ -186,7 +217,11 @@ export const fixtureExpectations = {
     "pure-clock-call",
     "pure-clock-construct-alias",
     "pure-random-destructure",
-    "pure-random-alias"
+    "pure-random-alias",
+    "pure-agent-run",
+    "pure-agent-runner",
+    "pure-agent-namespace",
+    "pure-agent-dynamic"
   ],
   "client-data-path": [
     "client-fetch",
@@ -200,7 +235,15 @@ export const fixtureExpectations = {
     "client-fetch-alias",
     "client-fetch-global-this",
     "client-fetch-passed",
-    "client-transport-alias"
+    "client-transport-alias",
+    "role-components-queries",
+    "client-event-source",
+    "client-send-beacon",
+    "client-mutation-observer"
+  ],
+  "server-function": [
+    "server-function-ui",
+    "server-function-route"
   ],
   "model-adapter": [
     "adapter-import",
@@ -221,18 +264,32 @@ export const fixtureExpectations = {
     "environment-alias",
     "environment-cast",
     "environment-type-alias",
-    "environment-handler"
+    "environment-handler",
+    "environment-import-alias",
+    "environment-spread",
+    "environment-entries"
   ],
   "test-sign-in": [
     "signin-password",
-    "signin-admin"
+    "signin-admin",
+    "signin-element",
+    "signin-admin-alias",
+    "signin-admin-destructure"
   ],
   "brand-cast": [
-    "brand-caller"
+    "brand-caller",
+    "brand-cast-alias",
+    "brand-cast-helper",
+    "brand-cast-imported-helper",
+    "brand-cast-derived"
   ],
   "no-reexport": [
     "export-module",
-    "export-imported"
+    "export-imported",
+    "export-namespace",
+    "export-default-imported",
+    "export-const-imported",
+    "export-local-alias"
   ],
   "styling": [
     "styling-palette",
@@ -274,6 +331,9 @@ export const fixtureExpectations = {
   "auth-urls": [
     "repo-auth-urls"
   ],
+  "ci-gates": [
+    "repo-ci-gates"
+  ],
   "migration-ledger": [
     "repo-migration-change",
     "repo-migration-delete",
@@ -284,10 +344,17 @@ export const fixtureExpectations = {
     "edge-demo.functions",
     "edge-demo.model",
     "edge-route-function",
-    "edge-cross-feature"
+    "edge-cross-feature",
+    "edge-domain-top-level"
+  ],
+  "test-import": [
+    "edge-test-import",
+    "edge-test-import-model"
   ],
   "package": [
-    "edge-server-package"
+    "edge-server-package",
+    "edge-server-subpath",
+    "edge-server-subpath-route"
   ],
   "composition-root": [
     "edge-composition"
@@ -304,6 +371,7 @@ export const fixtureExpectations = {
     "bundle-framework-server-package",
     "bundle-runtime-module",
     "bundle-closure-barrier",
-    "bundle-undeclared-dependency"
+    "bundle-undeclared-dependency",
+    "bundle-public-graph"
   ]
 } as const;

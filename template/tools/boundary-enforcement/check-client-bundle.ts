@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { browserClosure } from './browser-closure.ts';
+import { clientGraphPath } from './client-graph.ts';
 import { browserPackages, bundleSentinel, privateEnvironmentNames, type Diagnostic } from './policy.ts';
 
 const graphSchema = z.object({ version: z.literal(1), chunks: z.array(z.object({ fileName: z.string(), modules: z.array(z.string()) })).min(1) });
@@ -11,7 +12,7 @@ const graphSchema = z.object({ version: z.literal(1), chunks: z.array(z.object({
 export function checkClientChunks(root: string, project = process.cwd()): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const closure = browserClosure(project);
-  const graph = graphSchema.parse(JSON.parse(readFileSync(join(root, 'client-module-graph.json'), 'utf8')));
+  const graph = graphSchema.parse(JSON.parse(readFileSync(clientGraphPath(root), 'utf8')));
   const examined = new Set<string>();
   const report = (path: string, message: string) => diagnostics.push({ rule: 'client-reachability', path, message });
 
@@ -39,6 +40,7 @@ export function checkClientChunks(root: string, project = process.cwd()): Diagno
       const path = join(directory, entry.name);
 
       if (entry.isDirectory()) walk(path);
+      else if (entry.name === 'client-module-graph.json') report(path.slice(root.length + 1), 'The build module graph is in the public asset directory');
       else if (/\.[cm]?js$/.test(entry.name)) {
         const relative = path.slice(root.length + 1).split('\\').join('/');
 

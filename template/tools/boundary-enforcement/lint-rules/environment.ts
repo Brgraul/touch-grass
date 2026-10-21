@@ -63,7 +63,7 @@ export function createEnvironmentTypes(resolver: Resolver) {
 
     if (!ts.isIdentifier(target)) return false;
 
-    if (target.text === 'env') return true;
+    if (target.text === 'env' || resolver.originOf(target) === 'import:cloudflare:workers#env') return true;
     const declaration = resolver.symbolOf(target)?.declarations?.[0];
 
     if (!declaration) return false;

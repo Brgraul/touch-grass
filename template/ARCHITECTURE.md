@@ -20,7 +20,7 @@ Generated from `tools/boundary-enforcement/policy.ts`. Run `pnpm gen:architectur
 | workflow | Durability, step names, retries and payload parsing | Domain decisions |
 | components | Generic UI primitives and patterns | Feature knowledge or transport |
 | layouts | Application shell and navigation | Persistence or transport |
-| domain | Shared business capabilities used by multiple features | Feature imports |
+| domain | Shared business capabilities used by multiple features, one directory per capability | Feature imports or modules directly under src/domain |
 | platform-client | Shared identities and client mutation mechanism | Feature knowledge |
 | platform | Environment, Supabase, auth, model adapter, tracing and logging | Feature knowledge |
 | bootstrap | Framework bootstrap and one QueryClient per request | Feature knowledge |
@@ -63,14 +63,17 @@ Emitted browser chunks may also contain the dependency closure of the browser pa
 | Rule | Check | Requirement |
 |---|---|---|
 | ownership | dependency-cruiser | Import only the modules and packages allowed for the source role. Cross-feature imports reach only schemas. |
-| package | dependency-cruiser | Client roles import only browser packages. |
+| test-import | dependency-cruiser | Application modules never import test or spec files or anything under tests/. |
+| package | dependency-cruiser | Client roles import only browser packages, and never their server, SSR or plugin entry points. |
 | feature-cycle | dependency-cruiser | Feature dependencies have no cycles. |
 | composition-root | dependency-cruiser | Only src/server.ts wires feature Workflows into runtime entrypoints. Platform has no feature knowledge. |
 | client-reachability | check-client-bundle | Every emitted browser chunk excludes server modules, server packages, private environment names and the planted secret sentinel. |
-| pure-module | lint | Schemas, models, tools, agents and pure domain modules perform no I/O and read no clocks, randomness or runtime. |
+| file-role | lint | Every module under src matches exactly one role. Only tests, declaration files and the generated route tree have none. |
+| pure-module | lint | Schemas, models, tools, agents and pure domain modules perform no I/O and read no clocks, randomness or runtime. They import only agent definitions, SDK error classes and types. |
 | client-data-path | lint | Client views never fetch. Query functions belong to queries modules. Only platform/mutations.ts calls useMutation. |
+| server-function | lint | Only functions modules create server functions or server middleware. |
 | model-adapter | lint | Only platform/model.server.ts imports openai or constructs the model provider. |
-| env-access | lint | Only platform/env.server.ts reads environment fields. The composition root reads only the Workflow binding. |
+| env-access | lint | Only platform/env.server.ts reads environment fields or copies the environment. The composition root reads only the Workflow binding. |
 | test-sign-in | lint | Only tests/fixtures/test-users.ts calls password sign-in or auth.admin. |
 | brand-cast | lint | Brands come from parsers. Brand assertions occur only in platform, schemas or repositories. |
 | no-reexport | lint | Application modules contain no re-export statements or barrel files. |
@@ -80,6 +83,7 @@ Emitted browser chunks may also contain the dependency closure of the browser pa
 | forbidden-file | check-repo | No Tailwind, PostCSS or ESLint config and no stylesheet except src/styles/app.css. |
 | migration-ledger | check-repo | Applied migrations never change or disappear. New migrations sort after the base branch ledger. |
 | auth-urls | check-repo | Each wrangler.jsonc environment APP_URL matches the site_url and callback URL in its [remotes.<environment>.auth] block of supabase/config.toml. |
+| ci-gates | check-repo | The pull request workflow runs `pnpm check:fast`, `pnpm typecheck`, `pnpm test`, `pnpm check:bundle`. |
 | generated-architecture | check-repo | ARCHITECTURE.md exactly matches the policy renderer. |
 | vendored-skill | check-repo | Each skill in skills-lock.json is pinned to a commit and matches its recorded upstream hash. |
 | database-types | pnpm check | Database types are regenerated after the isolated reset and fail on a diff. |

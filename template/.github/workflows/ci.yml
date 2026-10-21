@@ -13,7 +13,7 @@ permissions:
 jobs:
   check-fast:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       # Full history so check:repo can compare migrations with origin/<base branch>.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,3 +32,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm check:fast
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+      - run: pnpm check:bundle

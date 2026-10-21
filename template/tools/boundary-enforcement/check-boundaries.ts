@@ -51,9 +51,9 @@ export function featureCycles(modules: { source: string; dependencies: { resolve
   return diagnostics;
 }
 
-export function checkBoundaries(root: string): Diagnostic[] {
+export function checkBoundaries(root: string, config = 'dependency-cruiser.config.cjs'): Diagnostic[] {
   const cli = fileURLToPath(new URL('../../node_modules/dependency-cruiser/bin/dependency-cruiser.mjs', import.meta.url));
-  const result = spawnSync(process.execPath, [cli, '--config', 'dependency-cruiser.config.cjs', '--output-type', 'json', 'src'], { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  const result = spawnSync(process.execPath, [cli, '--config', config, '--output-type', 'json', 'src'], { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
 
   if (result.error) throw result.error;
 
