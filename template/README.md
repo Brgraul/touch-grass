@@ -188,7 +188,7 @@ Langfuse Cloud in the US uses `https://us.cloud.langfuse.com`. Set `LANGFUSE_BAS
 
 ## Deploy and verify
 
-CI runs `pnpm check:fast` on every pull request, and the pull request shows the result as a check. It needs no secrets and no Docker, and it is the only GitHub workflow. Nothing deploys from GitHub.
+CI runs `pnpm check:fast`, `pnpm typecheck`, `pnpm test` and `pnpm check:bundle` on every pull request, and the pull request shows the result as a check. It needs no secrets and no Docker, and it is the only GitHub workflow. Nothing deploys from GitHub.
 
 Workers Builds deploys. A push to `main` builds and deploys `touch-grass-production`. Each build runs `pnpm build` with `CLOUDFLARE_ENV` set, then `pnpm cf:deploy`. The deploy command stops at the first failure and does the following.
 

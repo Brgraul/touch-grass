@@ -17,6 +17,8 @@ export type Resolver = {
   /** Whether an identifier reads a value, rather than naming a property, a declaration or a type. */
   isReference: (node: ts.Identifier) => boolean;
   symbolOf: (node: ts.Node) => ts.Symbol | undefined;
+  /** The property names an expression or binding reaches through local aliases, rooted at the first name this file cannot follow: `const a = c.auth; a.admin` is `c.auth.admin`. */
+  memberPath: (node: ts.Node) => string[];
 };
 
 export function unwrap(node: ts.Node): ts.Node {
@@ -88,6 +90,8 @@ export function createResolver(path: string, source: string, kind: ts.ScriptKind
 
   const symbolOf = (node: ts.Node) => {
     if (ts.isIdentifier(node) && ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node) return checker.getShorthandAssignmentValueSymbol(node.parent);
+
+    if (ts.isIdentifier(node) && ts.isExportSpecifier(node.parent) && !node.parent.parent.parent.moduleSpecifier) return checker.getExportSpecifierLocalTargetSymbol(node.parent);
 
     return checker.getSymbolAtLocation(node);
   };
@@ -176,6 +180,42 @@ export function createResolver(path: string, source: string, kind: ts.ScriptKind
     return undefined;
   }
 
+  function memberPath(node: ts.Node, depth = 0): string[] {
+    if (depth > maxDepth) return [];
+
+    if (ts.isBindingElement(node)) {
+      const keys: string[] = [];
+      let current: ts.Node = node;
+
+      while (ts.isBindingElement(current)) {
+        const key = ts.isObjectBindingPattern(current.parent) && !current.dotDotDotToken ? propertyKey(current.propertyName ?? current.name) : undefined;
+
+        if (key === undefined) return [];
+        keys.unshift(key);
+        current = current.parent.parent;
+      }
+
+      return ts.isVariableDeclaration(current) && current.initializer ? [...memberPath(current.initializer, depth + 1), ...keys] : keys;
+    }
+
+    const target = unwrap(node);
+
+    if (ts.isPropertyAccessExpression(target)) return [...memberPath(target.expression, depth + 1), target.name.text];
+
+    if (ts.isElementAccessExpression(target)) return ts.isStringLiteralLike(target.argumentExpression) ? [...memberPath(target.expression, depth + 1), target.argumentExpression.text] : [];
+
+    if (ts.isAwaitExpression(target)) return memberPath(target.expression, depth + 1);
+
+    if (!ts.isIdentifier(target)) return [];
+    const declaration = symbolOf(target)?.declarations?.[0];
+
+    if (declaration && ts.isVariableDeclaration(declaration) && ts.isIdentifier(declaration.name) && declaration.initializer) return memberPath(declaration.initializer, depth + 1);
+
+    if (declaration && ts.isBindingElement(declaration)) return memberPath(declaration, depth + 1);
+
+    return [target.text];
+  }
+
   const cross = (left: string[], right: string[]) => left.flatMap(prefix => right.map(suffix => `${prefix}${suffix}`));
 
   function stringValues(node: ts.Node, depth = 0): string[] | undefined {
@@ -248,5 +288,5 @@ export function createResolver(path: string, source: string, kind: ts.ScriptKind
     return !('name' in parent && parent.name === node);
   };
 
-  return { parsed, originOf, stringValues, isReference, symbolOf };
+  return { parsed, originOf, stringValues, isReference, symbolOf, memberPath };
 }

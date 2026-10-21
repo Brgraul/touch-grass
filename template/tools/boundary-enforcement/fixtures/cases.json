@@ -1471,5 +1471,496 @@
       "supabase/config.toml": "[remotes.production.auth]\nsite_url = \"https://app.example.test\"\nadditional_redirect_urls = [\"https://app.example.test/auth/callback\"]\n"
     },
     "expected": []
+  },
+  {
+    "id": "edge-test-import",
+    "kind": "edge",
+    "files": {
+      "src/features/demo/ui/page.tsx": "import { client } from \"../data.spec.ts\"; export const Page = () => client;",
+      "src/features/demo/data.spec.ts": "import { createClient } from \"@supabase/supabase-js\"; export const client = createClient(\"u\", \"k\");"
+    },
+    "expected": [
+      {
+        "rule": "test-import",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "edge-test-import-model",
+    "kind": "edge",
+    "files": {
+      "src/features/demo/demo.model.ts": "import { read } from \"./helpers.test.ts\"; export const answer = read;",
+      "src/features/demo/helpers.test.ts": "import { readFileSync } from \"node:fs\"; export const read = readFileSync;"
+    },
+    "expected": [
+      {
+        "rule": "test-import",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "file-role-feature-helper",
+    "kind": "source",
+    "path": "src/features/demo/helpers.ts",
+    "source": "export const twice = (value: number) => value * 2;",
+    "expected": [
+      {
+        "rule": "file-role",
+        "path": "src/features/demo/helpers.ts"
+      }
+    ]
+  },
+  {
+    "id": "file-role-top-level",
+    "kind": "source",
+    "path": "src/lib/format.ts",
+    "source": "export const twice = (value: number) => value * 2;",
+    "expected": [
+      {
+        "rule": "file-role",
+        "path": "src/lib/format.ts"
+      }
+    ]
+  },
+  {
+    "id": "file-role-test-positive",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.test.ts",
+    "source": "export const twice = (value: number) => value * 2;",
+    "expected": []
+  },
+  {
+    "id": "edge-domain-top-level",
+    "kind": "edge",
+    "files": {
+      "src/features/demo/demo.model.ts": "import { client } from \"../../domain/loose\"; export const answer = client;",
+      "src/domain/loose.ts": "import { createClient } from \"@supabase/supabase-js\"; export const client = createClient(\"u\", \"k\");"
+    },
+    "expected": [
+      {
+        "rule": "ownership-model-demo",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "edge-domain-positive",
+    "kind": "edge",
+    "files": {
+      "src/features/demo/demo.model.ts": "import { money } from \"../../domain/billing/money\"; export const answer = money;",
+      "src/domain/billing/money.ts": "export const money = (cents: number) => cents / 100;"
+    },
+    "expected": []
+  },
+  {
+    "id": "file-role-domain-top-level",
+    "kind": "source",
+    "path": "src/domain/loose.ts",
+    "source": "export const twice = (value: number) => value * 2;",
+    "expected": [
+      {
+        "rule": "file-role",
+        "path": "src/domain/loose.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-agent-run",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "import { run, type Agent } from \"@openai/agents\"; export const go = (agent: Agent) => run(agent, \"hi\");",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-agent-runner",
+    "kind": "source",
+    "path": "src/features/demo/demo.agent.ts",
+    "source": "import { Agent, Runner } from \"@openai/agents\"; export const agent = new Agent({ name: \"demo\" }); export const runner = new Runner();",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.agent.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-agent-namespace",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "import * as sdk from \"@openai/agents\"; export const go = sdk.run;",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.tools.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-agent-dynamic",
+    "kind": "source",
+    "path": "src/features/demo/demo.tools.ts",
+    "source": "export const go = async () => (await import(\"@openai/agents\")).run;",
+    "expected": [
+      {
+        "rule": "pure-module",
+        "path": "src/features/demo/demo.tools.ts"
+      }
+    ]
+  },
+  {
+    "id": "pure-agent-definitions",
+    "kind": "source",
+    "path": "src/features/demo/demo.agent.ts",
+    "source": "import { Agent, tool, MaxTurnsExceededError, type RunConfig } from \"@openai/agents\"; import type { Runner } from \"@openai/agents\"; export const agent = new Agent({ name: \"demo\", tools: [tool({ name: \"t\", description: \"d\", parameters: {}, execute: () => 1 })] }); export const config: RunConfig = {}; export type Run = Runner; export const isLimit = (error: Error) => error instanceof MaxTurnsExceededError;",
+    "expected": []
+  },
+  {
+    "id": "edge-server-subpath",
+    "kind": "edge",
+    "files": {
+      "src/features/demo/ui/page.tsx": "import { getRequest } from \"@tanstack/react-start/server\"; export const Page = () => getRequest;"
+    },
+    "expected": [
+      {
+        "rule": "package",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "edge-server-subpath-route",
+    "kind": "edge",
+    "files": {
+      "src/routes/page.tsx": "import { RouterServer } from \"@tanstack/react-router/ssr/server\"; export const Page = RouterServer;"
+    },
+    "expected": [
+      {
+        "rule": "package",
+        "path": "src/routes/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "edge-client-subpath-positive",
+    "kind": "edge",
+    "files": {
+      "src/features/demo/ui/page.tsx": "import { Link } from \"@tanstack/react-router\"; import { Slot } from \"radix-ui\"; export const Page = () => [Link, Slot];"
+    },
+    "expected": []
+  },
+  {
+    "id": "server-function-ui",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "import { createServerFn } from \"@tanstack/react-start\"; export const load = createServerFn({ method: \"GET\" }).handler(() => 1);",
+    "expected": [
+      {
+        "rule": "server-function",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "server-function-route",
+    "kind": "source",
+    "path": "src/routes/page.tsx",
+    "source": "import * as start from \"@tanstack/react-start\"; export const guard = start.createMiddleware().server(({ next }) => next());",
+    "expected": [
+      {
+        "rule": "server-function",
+        "path": "src/routes/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "server-function-positive",
+    "kind": "source",
+    "path": "src/features/demo/demo.functions.ts",
+    "source": "import { createServerFn } from \"@tanstack/react-start\"; export const load = createServerFn({ method: \"GET\" }).handler(() => 1);",
+    "expected": []
+  },
+  {
+    "id": "role-components-queries",
+    "kind": "source",
+    "path": "src/components/data.queries.ts",
+    "source": "export const load = () => fetch(\"/data\"); export const query = { queryFn: load };",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/components/data.queries.ts"
+      }
+    ]
+  },
+  {
+    "id": "environment-import-alias",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "import { env as e } from \"cloudflare:workers\"; export const key = e.LLM_API_KEY;",
+    "expected": [
+      {
+        "rule": "env-access",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "environment-spread",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "import { env } from \"cloudflare:workers\"; export const copy = { ...env };",
+    "expected": [
+      {
+        "rule": "env-access",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "environment-entries",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export const all = (env: Env) => Object.entries(env);",
+    "expected": [
+      {
+        "rule": "env-access",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "environment-pass-positive",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "import { parse } from \"./demo.repo.server\"; export const read = (env: Env) => parse(env);",
+    "expected": []
+  },
+  {
+    "id": "export-namespace",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "import * as ns from \"./demo.schema\"; export { ns };",
+    "expected": [
+      {
+        "rule": "no-reexport",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "export-default-imported",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "import value from \"./demo.schema\"; export default value;",
+    "expected": [
+      {
+        "rule": "no-reexport",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "export-const-imported",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "import { value } from \"./demo.schema\"; export const alias = value;",
+    "expected": [
+      {
+        "rule": "no-reexport",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "export-local-alias",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "import { value } from \"./demo.schema\"; const alias = value; export { alias };",
+    "expected": [
+      {
+        "rule": "no-reexport",
+        "path": "src/features/demo/demo.model.ts"
+      }
+    ]
+  },
+  {
+    "id": "export-derived-positive",
+    "kind": "source",
+    "path": "src/features/demo/demo.model.ts",
+    "source": "import { value } from \"./demo.schema\"; export const twice = value * 2; export const parsed = value.parse(1);",
+    "expected": []
+  },
+  {
+    "id": "brand-cast-alias",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "type Id = UserId; export const id = \"x\" as Id;",
+    "expected": [
+      {
+        "rule": "brand-cast",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "brand-cast-helper",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "const cast = <T,>(value: unknown) => value as T; export const id = cast<UserId>(\"x\");",
+    "expected": [
+      {
+        "rule": "brand-cast",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "brand-cast-imported-helper",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "import { cast } from \"@/platform/cast\"; export const id = cast<UserId>(\"x\");",
+    "expected": [
+      {
+        "rule": "brand-cast",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "brand-cast-derived",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "import { z } from \"zod\"; const localId = z.string().brand<\"LocalId\">(); type LocalId = z.infer<typeof localId>; export const parse = localId.parse; export const id = \"x\" as LocalId;",
+    "expected": [
+      {
+        "rule": "brand-cast",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "brand-type-argument-positive",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "import { useState } from \"react\"; export const useCursor = () => useState<PageCursor>(); export const useSend = () => useKeyed<{ conversationId?: ConversationId }>();",
+    "expected": []
+  },
+  {
+    "id": "client-event-source",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const stream = () => new EventSource(\"/events\");",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "client-send-beacon",
+    "kind": "source",
+    "path": "src/features/demo/ui/page.tsx",
+    "source": "export const ping = () => window.navigator.sendBeacon(\"/ping\");",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/ui/page.tsx"
+      }
+    ]
+  },
+  {
+    "id": "client-mutation-observer",
+    "kind": "source",
+    "path": "src/features/demo/demo.queries.ts",
+    "source": "import { MutationObserver, type QueryClient } from \"@tanstack/react-query\"; export const save = (client: QueryClient) => new MutationObserver(client, { mutationFn: async () => 1 });",
+    "expected": [
+      {
+        "rule": "client-data-path",
+        "path": "src/features/demo/demo.queries.ts"
+      }
+    ]
+  },
+  {
+    "id": "signin-element",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export const signIn = (auth: Auth) => auth[\"signInWithPassword\"]({ email: \"a\", password: \"b\" });",
+    "expected": [
+      {
+        "rule": "test-sign-in",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "signin-admin-alias",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export const users = (client: Client) => { const a = client.auth; return a.admin.listUsers(); };",
+    "expected": [
+      {
+        "rule": "test-sign-in",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "signin-admin-destructure",
+    "kind": "source",
+    "path": "src/features/demo/demo.service.server.ts",
+    "source": "export const users = (client: Client) => { const { admin } = client.auth; return admin.listUsers(); };",
+    "expected": [
+      {
+        "rule": "test-sign-in",
+        "path": "src/features/demo/demo.service.server.ts"
+      }
+    ]
+  },
+  {
+    "id": "bundle-public-graph",
+    "kind": "bundle",
+    "modules": [
+      "/app/src/features/demo/ui/page.tsx"
+    ],
+    "source": "export const page = 1;",
+    "files": {
+      "client-module-graph.json": "{}"
+    },
+    "expected": [
+      {
+        "rule": "client-reachability",
+        "path": "client-module-graph.json"
+      }
+    ]
+  },
+  {
+    "id": "edge-alias-positive",
+    "kind": "edge",
+    "files": {
+      "src/features/demo/ui/page.tsx": "import { query } from \"@/features/demo/demo.queries\"; import { Button } from \"#/components/button\"; import { Link } from \"@tanstack/react-router\"; export const Page = () => [query, Button, Link];",
+      "src/features/demo/demo.queries.ts": "export const query = 1;",
+      "src/components/button.tsx": "export const Button = () => null;"
+    },
+    "expected": []
+  },
+  {
+    "id": "repo-ci-gates",
+    "kind": "repo",
+    "files": {
+      ".github/workflows/ci.yml": "      - run: pnpm check:fast\n"
+    },
+    "expected": [
+      {
+        "rule": "ci-gates",
+        "path": ".github/workflows/ci.yml"
+      }
+    ]
   }
 ]

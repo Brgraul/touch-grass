@@ -5,7 +5,7 @@ import { join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { z } from 'zod';
-import { bannedPackages, ignoredDirectories, renderArchitecture, type Diagnostic } from './policy.ts';
+import { bannedPackages, ciCommands, ignoredDirectories, renderArchitecture, type Diagnostic } from './policy.ts';
 
 const manifestSchema = z.object({
   dependencies: z.record(z.string(), z.string()).default({}),
@@ -127,6 +127,13 @@ export function checkRepoFiles(files: ReadonlyMap<string, string>, baseMigration
 
   for (const path of files.keys()) {
     if (/(?:^|\/)(?:tailwind\.config\.[^/]+|postcss\.config\.[^/]+|eslint\.config\.[^/]+|\.eslintrc(?:\.[^/]+)?)$/.test(path) || /\.(?:css|scss|sass|less|styl)$/.test(path) && path !== 'src/styles/app.css') report('forbidden-file', path, 'This config or stylesheet is forbidden');
+  }
+
+  const workflow = files.get('.github/workflows/ci.yml') ?? '';
+  const steps = new Set([...workflow.matchAll(/^\s*-?\s*run:\s*(.+?)\s*$/gm)].map(match => match[1]));
+
+  for (const command of ciCommands) {
+    if (!steps.has(command)) report('ci-gates', '.github/workflows/ci.yml', `Add a \`run: ${command}\` step so pull requests are gated on it`);
   }
 
   if (files.get('ARCHITECTURE.md') !== renderArchitecture()) report('generated-architecture', 'ARCHITECTURE.md', 'Run pnpm gen:architecture to update the generated policy tables');

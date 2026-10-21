@@ -79,7 +79,7 @@ Create only the files a feature needs. Never create placeholder files.
 ```text
 .agents/skills/                          Bundled, version-pinned agent skills
 .github/workflows/
-	ci.yml                               check:fast on every pull request
+	ci.yml                               check:fast, typecheck, test and check:bundle on every pull request
 src/
 	routes/
 		__root.tsx                       Document shell, QueryClient provider
@@ -1178,7 +1178,7 @@ Each row is at least one integration or database test. One case is a unit test i
 | Each file edit | None | No interruption |
 | Optional `PostToolUse` hook in `tools/hooks/` | Targeted fast checks on the edited file | Feedback only. Never required for correctness. |
 | Before an agent reports completion | `pnpm check:fast`, `pnpm typecheck`, and the tests of every changed feature. Add `pnpm test:db` after a schema change. | The agent fixes failures, with bounded repair attempts |
-| Pull request | `pnpm check:fast` in CI | Shown as a check on the pull request |
+| Pull request | `pnpm check:fast`, `pnpm typecheck`, `pnpm test` and `pnpm check:bundle` in CI | Shown as a check on the pull request |
 | Push to `main` or `production` | Workers Builds runs `pnpm build` and `pnpm cf:deploy` for that branch's Worker | Migrate and deploy. No GitHub workflow runs. |
 | After each deploy | `pnpm verify:deployed --env <name>`, run by a person or an agent | A deployment is unverified until it passes |
 
@@ -1186,7 +1186,7 @@ If a check cannot run, report it as not run. Never claim success without it.
 
 ### CI
 
-- `ci.yml` installs the pinned pnpm and dependencies and runs `pnpm check:fast` on every pull request. The pull request shows the result as a check.
+- `ci.yml` installs the pinned pnpm and dependencies and runs `pnpm check:fast`, `pnpm typecheck`, `pnpm test` and `pnpm check:bundle` on every pull request. The pull request shows the result as a check. `check:repo` fails when the workflow drops one of these steps.
 - `ci.yml` needs no secrets and no Docker. GitHub runs no deploy workflow.
 
 ## Environments and deployment
@@ -1323,7 +1323,7 @@ The template is complete when all of these hold:
 - Every rule in [Rule checks](#rule-checks) has its named check or proof, and every mechanically checked rule has a negative fixture.
 - The committed `ARCHITECTURE.md` matches a fresh render of `policy.ts`, and the template does not ship this specification.
 - Declarative SQL is grouped by owner under `supabase/schemas/`, and migrations replay from Git into an empty database.
-- `pnpm check` passes locally, and `pnpm check:fast` passes in CI.
+- `pnpm check` passes locally, and the static checks pass in CI.
 - A deployed environment passes `pnpm verify:deployed`.
 - Optional hooks work where supported and nothing depends on them.
 - The generated app's README lists free-tier limits and external costs.
