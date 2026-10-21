@@ -50,7 +50,7 @@ function Button({
     asChild?: boolean
   }) {
   const Comp = asChild ? Slot.Root : "button"
-  // A server-rendered button does nothing until React attaches its handler.
+  // WHY: A server-rendered button does nothing until React hydrates and attaches its handler.
   const hydrated = useHydrated()
 
   return (

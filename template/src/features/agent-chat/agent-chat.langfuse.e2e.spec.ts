@@ -2,16 +2,13 @@ import { expect, test } from '@playwright/test'
 import { z } from 'zod'
 import { createTestUser, deleteTestUser, signInAs, signInTestUser } from '../../../tests/fixtures/test-users'
 
-// The app under test must hold the same keys, in `.dev.vars` locally or as Worker secrets when deployed.
-// The checks hold for the local provider double and for a real model, so the test also runs against a deployed environment.
 const langfuse = z.object({
   LANGFUSE_BASE_URL: z.url().default('https://cloud.langfuse.com'),
   LANGFUSE_PUBLIC_KEY: z.string().min(1),
   LANGFUSE_SECRET_KEY: z.string().min(1),
 }).safeParse(process.env)
 
-// The v2 observations API serves spans exported with `x-langfuse-ingestion-version: 4` within seconds.
-// The v1 traces API lags by minutes, allows five reads per rate-limit window on the Hobby plan, and is deprecated.
+// WHY: Langfuse's deprecated v1 traces API lags by minutes and allows five reads per rate-limit window on the Hobby plan, while the v2 observations API serves spans within seconds.
 const observationsSchema = z.object({
   data: z.array(z.object({
     traceId: z.string(), name: z.string(), type: z.string(), level: z.string(),
@@ -48,7 +45,6 @@ test('a chat run lands in Langfuse as one trace in its conversation session', as
     const [runId] = exchangeRunIds.parse(data).exchanges.items.map(({ run }) => run.id)
     const traceId = runId!.replaceAll('-', '')
 
-    // Ingestion is asynchronous, so poll until the run span and one generation per saved step arrive.
     const query = new URLSearchParams({
       traceId, fromStartTime: sentAt.toISOString(), toStartTime: new Date(Date.now() + 60_000).toISOString(), fields: 'core,basic,io,trace_context',
     })

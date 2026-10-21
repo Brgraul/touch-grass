@@ -24,7 +24,7 @@ const completionChoice = z.object({ finish_reason: z.string(), message: assistan
     || typeof message.content === 'string'
     || Boolean(message.refusal || message.reasoning || message.tool_calls?.length), 'Provider returned no assistant output');
 
-// The Chat Completions model keeps the raw completion as providerData, the only place the finish reason survives.
+// WHY: The SDK's Chat Completions model keeps the raw completion as providerData, the only place the finish reason survives.
 const completion = z.object({ choices: z.array(completionChoice).min(1) });
 
 const QUOTA_CODES = ['insufficient_quota', 'billing_hard_limit_reached'];
@@ -57,8 +57,7 @@ function parsesAsJson(text: string): boolean {
   }
 }
 
-// The client raises APIConnectionError only when fetch itself rejects. A connection lost while the body streams
-// surfaces later as a bare TypeError, or as a SyntaxError when the body just stops, so the body is read here.
+// WHY: The OpenAI client raises APIConnectionError only when fetch rejects, so a connection lost mid-body would surface later as a bare TypeError or SyntaxError.
 async function fetchWholeBody(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   const response = await fetch(input, init);
   const body = await response.clone().text();
@@ -85,13 +84,13 @@ export function modelResponseMetadata(response: ModelResponse): { finishReason: 
   return choice && { finishReason: choice.finish_reason, refused: choice.finish_reason === 'content_filter' || Boolean(choice.message.refusal) };
 }
 
-// The SDK raises this for a length-truncated completion with no output and exports no type guard for it.
+// WHY: The SDK raises this for a length-truncated completion with no output and exports no type guard for it.
 export function isTruncatedModelError(error: unknown): boolean {
   return error instanceof ModelBehaviorError && error.message === TRUNCATED_EMPTY_COMPLETION;
 }
 
 export function classifyProviderError(error: unknown): ProviderErrorKind {
-  // The client raises these for network loss, its own timeout, and the abort at MODEL_CALL_TIMEOUT. Their name is plain 'Error'.
+  // WHY: The OpenAI client raises these for network loss, its own timeout and our abort, all with the plain name 'Error'.
   if (error instanceof OpenAI.APIConnectionError || error instanceof OpenAI.APIUserAbortError) return 'retryable';
   const parsed = providerError.safeParse(error);
 

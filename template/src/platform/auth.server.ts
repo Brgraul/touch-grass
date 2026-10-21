@@ -26,16 +26,6 @@ class Unauthenticated extends Error {}
 
 class InvalidInput extends Error {}
 
-// A server function parses its input here instead of in .validator(), which throws before safeResult
-// runs. A thrown validation error would reach the client as a transport failure and be retried.
-export function parseInput<Output>(schema: z.ZodType<Output>, input: unknown): Output {
-  const parsed = schema.safeParse(input)
-
-  if (!parsed.success) throw new InvalidInput()
-
-  return parsed.data
-}
-
 export async function readSession() {
   const { data, error } = await createRequestClient().auth.getUser()
 
@@ -50,6 +40,16 @@ export async function requireActor(request: Request = getRequest()): Promise<Act
   if (error || !data.user) throw new Unauthenticated()
 
   return { userId: userId.parse(data.user.id), environmentId: getEnv().ENVIRONMENT_ID }
+}
+
+// WHY: Parsing in TanStack Start's .validator() throws before safeResult runs, and the client retries a thrown error as a transport failure.
+export async function requireActorInput<Input>(schema: z.ZodType<Input>, data: unknown): Promise<{ actor: Actor; input: Input }> {
+  const actor = await requireActor()
+  const parsed = schema.safeParse(data)
+
+  if (!parsed.success) throw new InvalidInput()
+
+  return { actor, input: parsed.data }
 }
 
 export async function beginGoogleSignIn() {

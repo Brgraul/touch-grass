@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import type { z } from 'zod'
-import { createRequestClient, parseInput, requestEnvironment, requireActor, safeResult } from '@/platform/auth.server'
+import { createRequestClient, requestEnvironment, requireActor, requireActorInput, safeResult } from '@/platform/auth.server'
 import { getProfile, updateProfile } from './account.repo.server'
 import { updateProfileInput } from './account.schema'
 
@@ -13,7 +13,7 @@ export const readProfile = createServerFn({ method: 'GET' }).handler(() => safeR
 export const saveProfile = createServerFn({ method: 'POST' })
   .validator((input: z.input<typeof updateProfileInput>) => input)
   .handler(({ data }) => safeResult(async () => {
-    const actor = await requireActor()
+    const { actor, input } = await requireActorInput(updateProfileInput, data)
 
-    return updateProfile(requestEnvironment(), actor.userId, parseInput(updateProfileInput, data).displayName)
+    return updateProfile(requestEnvironment(), actor.userId, input.displayName)
   }))

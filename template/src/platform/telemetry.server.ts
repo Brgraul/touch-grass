@@ -7,8 +7,6 @@ export type Trace = { id: string; name: string; userId: string; sessionId?: stri
 
 type Timing = { startedAt: number; endedAt: number };
 
-// A trace holds one agent observation. Its span ID comes from the trace ID, so sending it again replaces it.
-// Every generation is a separate provider call and gets a fresh span ID.
 export type Observation = Timing & { name: string; input?: unknown; output?: unknown; error?: string } & (
   | { type: 'agent' }
   | { type: 'generation'; model: string; usage?: { inputTokens: number; outputTokens: number } }
@@ -64,7 +62,7 @@ function span(trace: Trace, observation: Observation) {
 
 const disabled: Tracer = { async record() {} };
 
-// Langfuse reads OTLP/JSON, so a span is one fetch and the Worker needs no OpenTelemetry SDK.
+// WHY: Langfuse accepts OTLP/JSON, so one fetch per span replaces the OpenTelemetry SDK.
 export function createTracer(settings: Pick<AppEnv, 'LANGFUSE_BASE_URL' | 'LANGFUSE_PUBLIC_KEY' | 'LANGFUSE_SECRET_KEY'>): Tracer {
   const { LANGFUSE_BASE_URL: baseUrl, LANGFUSE_PUBLIC_KEY: publicKey, LANGFUSE_SECRET_KEY: secretKey } = settings;
 
@@ -74,12 +72,11 @@ export function createTracer(settings: Pick<AppEnv, 'LANGFUSE_BASE_URL' | 'LANGF
   const headers = {
     'Content-Type': 'application/json',
     Authorization: `Basic ${btoa(`${publicKey}:${secretKey}`)}`,
-    // Without it Langfuse can take minutes to show an OTLP span.
+    // WHY: Without it Langfuse can take minutes to show an OTLP span.
     'x-langfuse-ingestion-version': '4',
   };
 
   return {
-    // A lost span never fails the run, so every export failure is logged and dropped.
     async record(trace, observation) {
       try {
         const response = await fetch(endpoint, {
