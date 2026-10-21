@@ -84,18 +84,6 @@ flowchart LR
   service --> llm(["LLM provider"])
 ```
 
-## Don't ask, enforce
-
-Rules in a prompt are suggestions. Rules that fail the build are not. The generated app enforces its architecture with:
-
-- **Import boundaries.** dependency-cruiser checks every import against the role allowlist, and fails on cross-feature imports and feature cycles.
-- **Policy lint rules.** Custom rules keep schemas, models, tools and agents free of I/O, clocks and randomness. They keep fetching out of UI components, environment reads in one module, and brand casts in parsers.
-- **Anti-slop lint for TypeScript.** 18 Oxlint rules reject the patterns agents tend to produce: chained type assertions, `unknown` parameters and returns, widen-then-assert, module mocking, object parameters and more.
-- **Client bundle inspection.** The production build fails if a server module, server package, private environment name or planted secret reaches a browser chunk.
-- **Repository checks.** Exact version pins, a banned-package list, an append-only migration ledger, a generated `ARCHITECTURE.md` that must match the policy, and hash-verified vendored skills.
-
-`pnpm check` runs all of it, plus type checking and every test suite, against a freshly reset local database.
-
 ## Boundaries are enforced at three points
 
 <img src=".github/assets/boundaries.svg" alt="You create rules to map file and folder names to banned code patterns and allowed imports. Agent hooks, PRs and manual pnpm check runs enforce four checks: linting, imports, repo-wide checks and runtime separation." width="100%">
