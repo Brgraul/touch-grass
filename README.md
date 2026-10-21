@@ -96,6 +96,32 @@ Rules in a prompt are suggestions. Rules that fail the build are not. The genera
 
 `pnpm check` runs all of it, plus type checking and every test suite, against a freshly reset local database.
 
+## Boundaries are enforced at three points
+
+<img src=".github/assets/boundaries.svg" alt="You create rules to map file and folder names to banned code patterns and allowed imports. Agent hooks, PRs and manual pnpm check runs enforce four checks: linting, imports, repo-wide checks and runtime separation." width="100%">
+
+<details>
+<summary>Text version</summary>
+
+You create **rules** to map file and folder names to **banned code patterns** and **allowed imports**.
+
+**Example:** `agent-chat.model.ts` → **bans** fetch, clocks, randomness · **imports** pure modules only
+
+| Point | When | Checks |
+| --- | --- | --- |
+| **1 · Agent hooks** | On file edit · `post-edit-check.ts` | A, B · edited file only, off by default |
+| **2 · PR opened** | Runs in CI · GitHub Actions, `ci.yml` | A, B, C, D + typecheck, unit tests |
+| **3 · Manual run** | `pnpm check` · `tools/check.ts` | A, B, C, D |
+
+| Check | Tool | What it enforces |
+| --- | --- | --- |
+| **A · Linting** | Linter: oxlint + 2 plugins | Anti-slop TypeScript rules, plus calls banned per file type |
+| **B · Imports** | Tool: dependency-cruiser | Imports blocked unless on the file type’s allowlist |
+| **C · Repo-wide checks** | Script: `check-repo.ts` | Pinned dependencies, banned packages, frozen migrations |
+| **D · Runtime separation** | Script: `check-client-bundle.ts` | No server code or secrets in the browser build |
+
+</details>
+
 ## Agent skills
 
 The template vendors agent skills pinned to upstream commits. They keep engineering judgment in front of the code instead of replacing it:

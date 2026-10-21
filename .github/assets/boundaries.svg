@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1680 590" width="1680" height="590" role="img" aria-labelledby="title desc">
+  <title id="title">Boundaries are enforced at three points</title>
+  <desc id="desc">You create rules to map file and folder names to banned code patterns and allowed imports. Example: agent-chat.model.ts bans fetch, clocks and randomness, and imports pure modules only. Three enforcement points: agent hooks on file edit run checks A and B on the edited file, off by default; a PR runs A, B, C and D plus typecheck and unit tests in CI; a manual pnpm check run executes A, B, C and D. Checks: A Linting with oxlint and two plugins, anti-slop TypeScript rules plus calls banned per file type. B Imports with dependency-cruiser, imports blocked unless on the file type's allowlist. C Repo-wide checks with check-repo.ts, pinned dependencies, banned packages and frozen migrations. D Runtime separation with check-client-bundle.ts, no server code or secrets in the browser build.</desc>
+  <style>
+    text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+    .card { fill: #fcfcfa; stroke: #d9dbd4; stroke-width: 1.5; }
+    .chip { fill: #e9eae5; }
+    .t { fill: #1b1f24; }
+    .m { fill: #4f5763; }
+    .a { fill: #1d47a6; }
+    .h { font-size: 26px; font-weight: 600; }
+    .s { font-size: 20px; }
+    .b { font-weight: 600; }
+    @media (prefers-color-scheme: dark) {
+      .card { fill: #161b22; stroke: #30363d; }
+      .chip { fill: #262c36; }
+      .t { fill: #e6edf3; }
+      .m { fill: #9198a1; }
+      .a { fill: #79a8ff; }
+    }
+  </style>
+
+  <rect class="a" x="0" y="0" width="6" height="146" rx="3"/>
+  <text class="t" x="34" y="46" font-size="30">You create <tspan class="b">rules</tspan> to map file and folder names to <tspan class="b">banned code patterns</tspan> and <tspan class="b">allowed imports</tspan>.</text>
+  <text class="t s b" x="34" y="117">Example</text>
+  <rect class="chip" x="132" y="90" width="222" height="40" rx="8"/>
+  <text class="t s b" x="148" y="117">agent-chat<tspan class="a">.model.ts</tspan></text>
+  <text class="m s" x="374" y="117">→ <tspan class="b">bans</tspan> fetch, clocks, randomness · <tspan class="b">imports</tspan> pure modules only</text>
+
+  <rect class="card" x="0.75" y="186.75" width="544.5" height="164.5" rx="16"/>
+  <text class="t h" x="28" y="238">1 · Agent hooks</text>
+  <text class="m s" x="28" y="276">On file edit · post-edit-check.ts</text>
+  <circle class="chip" cx="48" cy="318" r="20"/><text class="t s b" x="48" y="325" text-anchor="middle">A</text>
+  <circle class="chip" cx="98" cy="318" r="20"/><text class="t s b" x="98" y="325" text-anchor="middle">B</text>
+  <text class="m s" x="132" y="325">edited file only, off by default</text>
+
+  <rect class="card" x="567.75" y="186.75" width="544.5" height="164.5" rx="16"/>
+  <text class="t h" x="595" y="238">2 · PR opened</text>
+  <text class="m s" x="595" y="276">Runs in CI · GitHub Actions, ci.yml</text>
+  <circle class="chip" cx="615" cy="318" r="20"/><text class="t s b" x="615" y="325" text-anchor="middle">A</text>
+  <circle class="chip" cx="665" cy="318" r="20"/><text class="t s b" x="665" y="325" text-anchor="middle">B</text>
+  <circle class="chip" cx="715" cy="318" r="20"/><text class="t s b" x="715" y="325" text-anchor="middle">C</text>
+  <circle class="chip" cx="765" cy="318" r="20"/><text class="t s b" x="765" y="325" text-anchor="middle">D</text>
+  <text class="m s" x="799" y="325">+ typecheck, unit tests</text>
+
+  <rect class="card" x="1134.75" y="186.75" width="544.5" height="164.5" rx="16"/>
+  <text class="t h" x="1162" y="238">3 · Manual run</text>
+  <text class="m s" x="1162" y="276">pnpm check · tools/check.ts</text>
+  <circle class="chip" cx="1182" cy="318" r="20"/><text class="t s b" x="1182" y="325" text-anchor="middle">A</text>
+  <circle class="chip" cx="1232" cy="318" r="20"/><text class="t s b" x="1232" y="325" text-anchor="middle">B</text>
+  <circle class="chip" cx="1282" cy="318" r="20"/><text class="t s b" x="1282" y="325" text-anchor="middle">C</text>
+  <circle class="chip" cx="1332" cy="318" r="20"/><text class="t s b" x="1332" y="325" text-anchor="middle">D</text>
+
+  <rect class="card" x="0.75" y="380.75" width="403.5" height="194.5" rx="16"/>
+  <text class="t h" x="24" y="430">A · Linting</text>
+  <text class="a s b" x="24" y="468">Linter: oxlint + 2 plugins</text>
+  <text class="t s" x="24" y="506">Anti-slop TypeScript rules, plus</text>
+  <text class="t s" x="24" y="534">calls banned per file type</text>
+
+  <rect class="card" x="425.75" y="380.75" width="403.5" height="194.5" rx="16"/>
+  <text class="t h" x="449" y="430">B · Imports</text>
+  <text class="a s b" x="449" y="468">Tool: dependency-cruiser</text>
+  <text class="t s" x="449" y="506">Imports blocked unless on the</text>
+  <text class="t s" x="449" y="534">file type’s allowlist</text>
+
+  <rect class="card" x="850.75" y="380.75" width="403.5" height="194.5" rx="16"/>
+  <text class="t h" x="874" y="430">C · Repo-wide checks</text>
+  <text class="a s b" x="874" y="468">Script: check-repo.ts</text>
+  <text class="t s" x="874" y="506">Pinned dependencies, banned</text>
+  <text class="t s" x="874" y="534">packages, frozen migrations</text>
+
+  <rect class="card" x="1275.75" y="380.75" width="403.5" height="194.5" rx="16"/>
+  <text class="t h" x="1299" y="430">D · Runtime separation</text>
+  <text class="a s b" x="1299" y="468">Script: check-client-bundle.ts</text>
+  <text class="t s" x="1299" y="506">No server code or secrets in the</text>
+  <text class="t s" x="1299" y="534">browser build</text>
+</svg>
